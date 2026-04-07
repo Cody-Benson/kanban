@@ -1,0 +1,196 @@
+const express = require('express');
+const pool = require('../db');
+const auth = require('../middleware/auth');
+
+const router = express.Router();
+router.use(auth);
+
+// Verify a project belongs to the authenticated user
+async function verifyProjectOwnership(projectId, userId) {
+  const result = await pool.query(
+    'SELECT p.id FROM projects p JOIN clients c ON p.client_id = c.id WHERE p.id = $1 AND c.user_id = $2',
+    [projectId, userId]
+  );
+  return result.rows.length > 0;
+}
+
+// Verify a task belongs to the authenticated user
+async function verifyTaskOwnership(taskId, userId) {
+  const result = await pool.query(
+    `SELECT t.id FROM tasks t
+     JOIN projects p ON t.project_id = p.id
+     JOIN clients c ON p.client_id = c.id
+     WHERE t.id = $1 AND c.user_id = $2`,
+    [taskId, userId]
+  );
+  return result.rows.length > 0;
+}
+
+// GET /api/tasks/by-project/:projectId
+router.get('/by-project/:projectId', async (req, res) => {
+  try {
+    if (!(await verifyProjectOwnership(req.params.projectId, req.userId))) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    const result = await pool.query(
+      'SELECT * FROM tasks WHERE project_id = $1 ORDER BY position',
+      [req.params.projectId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get tasks error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/tasks/by-project/:projectId
+router.post('/by-project/:projectId', async (req, res) => {
+  try {
+    if (!(await verifyProjectOwnership(req.params.projectId, req.userId))) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    const { title, description } = req.body;
+    if (!title) return res.status(400).json({ error: 'Title is required' });
+
+    // Get the next position for 'todo' column
+    const posResult = await pool.query(
+      "SELECT COALESCE(MAX(position), -1) + 1 AS next_pos FROM tasks WHERE project_id = $1 AND status = 'todo'",
+      [req.params.projectId]
+    );
+
+    const result = await pool.query(
+      'INSERT INTO tasks (project_id, title, description, status, position) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [req.params.projectId, title, description || '', 'todo', posResult.rows[0].next_pos]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Create task error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PUT /api/tasks/reorder — drag-and-drop reorder/status change
+// NOTE: Must be before /:id routes so "reorder" isn't matched as an id
+router.put('/reorder', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { taskId, newStatus, newPosition } = req.body;
+    if (!taskId || !newStatus || newPosition == null) {
+      return res.status(400).json({ error: 'taskId, newStatus, and newPosition are required' });
+    }
+
+    if (!['todo', 'in-progress', 'completed'].includes(newStatus)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+
+    // Verify ownership
+    if (!(await verifyTaskOwnership(taskId, req.userId))) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // Get current task info
+    const taskResult = await client.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
+    const task = taskResult.rows[0];
+    const oldStatus = task.status;
+    const projectId = task.project_id;
+
+    await client.query('BEGIN');
+
+    // Update the task's status
+    await client.query(
+      'UPDATE tasks SET status = $1 WHERE id = $2',
+      [newStatus, taskId]
+    );
+
+    // Get all tasks in the destination column (excluding the moved task), ordered by position
+    const destTasks = await client.query(
+      'SELECT id FROM tasks WHERE project_id = $1 AND status = $2 AND id != $3 ORDER BY position',
+      [projectId, newStatus, taskId]
+    );
+
+    // Build new order: splice the moved task into the desired position
+    const destIds = destTasks.rows.map(r => r.id);
+    destIds.splice(newPosition, 0, taskId);
+
+    // Rewrite positions for the destination column
+    for (let i = 0; i < destIds.length; i++) {
+      await client.query('UPDATE tasks SET position = $1 WHERE id = $2', [i, destIds[i]]);
+    }
+
+    // If the task moved from a different column, renumber the source column too
+    if (oldStatus !== newStatus) {
+      const srcTasks = await client.query(
+        'SELECT id FROM tasks WHERE project_id = $1 AND status = $2 ORDER BY position',
+        [projectId, oldStatus]
+      );
+      for (let i = 0; i < srcTasks.rows.length; i++) {
+        await client.query('UPDATE tasks SET position = $1 WHERE id = $2', [i, srcTasks.rows[i].id]);
+      }
+    }
+
+    await client.query('COMMIT');
+
+    // Return all tasks for the project so the frontend can sync
+    const allTasks = await client.query(
+      'SELECT * FROM tasks WHERE project_id = $1 ORDER BY position',
+      [projectId]
+    );
+    res.json(allTasks.rows);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Reorder error:', err);
+    res.status(500).json({ error: 'Server error' });
+  } finally {
+    client.release();
+  }
+});
+
+// GET /api/tasks/:id
+router.get('/:id', async (req, res) => {
+  try {
+    if (!(await verifyTaskOwnership(req.params.id, req.userId))) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    const result = await pool.query('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Get task error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PUT /api/tasks/:id
+router.put('/:id', async (req, res) => {
+  try {
+    if (!(await verifyTaskOwnership(req.params.id, req.userId))) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    const { title, description } = req.body;
+    if (!title) return res.status(400).json({ error: 'Title is required' });
+
+    const result = await pool.query(
+      'UPDATE tasks SET title = $1, description = $2 WHERE id = $3 RETURNING *',
+      [title, description || '', req.params.id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Update task error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// DELETE /api/tasks/:id
+router.delete('/:id', async (req, res) => {
+  try {
+    if (!(await verifyTaskOwnership(req.params.id, req.userId))) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    await pool.query('DELETE FROM tasks WHERE id = $1', [req.params.id]);
+    res.json({ message: 'Task deleted' });
+  } catch (err) {
+    console.error('Delete task error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+module.exports = router;
