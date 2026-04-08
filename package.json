@@ -1,6 +1,9 @@
 {
   "name": "kanban-board",
   "private": true,
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "workspaces": ["client", "server"],
   "scripts": {
     "dev": "concurrently \"npm run dev -w server\" \"npm run dev -w client\"",
