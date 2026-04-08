@@ -6,6 +6,7 @@ CREATE TABLE users (
   id SERIAL PRIMARY KEY,
   email VARCHAR(255) UNIQUE NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
+  google_refresh_token TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -30,6 +31,8 @@ CREATE TABLE tasks (
   description TEXT DEFAULT '',
   status VARCHAR(20) NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'in-progress', 'completed')),
   position INTEGER NOT NULL DEFAULT 0,
+  due_date DATE,
+  google_task_id VARCHAR(255),
   created_at TIMESTAMP DEFAULT NOW()
 );
 

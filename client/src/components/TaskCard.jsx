@@ -1,9 +1,16 @@
 import { Card, CardContent, Typography, IconButton, Box } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import TaskAltIcon from '@mui/icons-material/TaskAlt';
+import { Tooltip } from '@mui/material';
 import { Draggable } from '@hello-pangea/dnd';
 
 export default function TaskCard({ task, index, onEdit, onDelete }) {
+  const formattedDate = task.due_date
+    ? new Date(task.due_date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })
+    : null;
+
   return (
     <Draggable draggableId={String(task.id)} index={index}>
       {(provided, snapshot) => (
@@ -26,6 +33,21 @@ export default function TaskCard({ task, index, onEdit, onDelete }) {
                     {task.description}
                   </Typography>
                 )}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+                  {formattedDate && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <CalendarMonthIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+                      <Typography variant="caption" color="text.secondary">
+                        {formattedDate}
+                      </Typography>
+                    </Box>
+                  )}
+                  {task.google_task_id && (
+                    <Tooltip title="Linked to Google Tasks" arrow>
+                      <TaskAltIcon sx={{ fontSize: 14, color: '#4285f4' }} />
+                    </Tooltip>
+                  )}
+                </Box>
               </Box>
               <Box sx={{ display: 'flex', flexShrink: 0 }}>
                 <IconButton size="small" onClick={() => onEdit(task)}>

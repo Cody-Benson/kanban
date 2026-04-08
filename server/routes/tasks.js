@@ -49,7 +49,7 @@ router.post('/by-project/:projectId', async (req, res) => {
     if (!(await verifyProjectOwnership(req.params.projectId, req.userId))) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    const { title, description } = req.body;
+    const { title, description, due_date } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
 
     // Get the next position for 'todo' column
@@ -59,10 +59,41 @@ router.post('/by-project/:projectId', async (req, res) => {
     );
 
     const result = await pool.query(
-      'INSERT INTO tasks (project_id, title, description, status, position) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [req.params.projectId, title, description || '', 'todo', posResult.rows[0].next_pos]
+      'INSERT INTO tasks (project_id, title, description, status, position, due_date) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      [req.params.projectId, title, description || '', 'todo', posResult.rows[0].next_pos, due_date || null]
     );
-    res.status(201).json(result.rows[0]);
+    const newTask = result.rows[0];
+
+    // Auto-create Google Task for today when no due date is assigned
+    if (!due_date) {
+      try {
+        const googleRoutes = require('./google');
+        const tasksClient = await googleRoutes.getTasksClient(req.userId);
+        if (tasksClient) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const googleTask = await tasksClient.tasks.insert({
+            tasklist: '@default',
+            requestBody: {
+              title: newTask.title,
+              notes: newTask.description || '',
+              status: 'needsAction',
+              due: today.toISOString(),
+            },
+          });
+          const updateResult = await pool.query(
+            'UPDATE tasks SET google_task_id = $1 WHERE id = $2 RETURNING *',
+            [googleTask.data.id, newTask.id]
+          );
+          res.status(201).json(updateResult.rows[0]);
+          return;
+        }
+      } catch (googleErr) {
+        console.error('Auto Google Task creation error (non-fatal):', googleErr.message);
+      }
+    }
+
+    res.status(201).json(newTask);
   } catch (err) {
     console.error('Create task error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -130,6 +161,24 @@ router.put('/reorder', async (req, res) => {
 
     await client.query('COMMIT');
 
+    // Google Tasks sync: update linked Google Task status on column change
+    if (oldStatus !== newStatus && task.google_task_id) {
+      try {
+        const googleRoutes = require('./google');
+        const tasksClient = await googleRoutes.getTasksClient(req.userId);
+        if (tasksClient) {
+          const googleStatus = newStatus === 'completed' ? 'completed' : 'needsAction';
+          await tasksClient.tasks.patch({
+            tasklist: '@default',
+            task: task.google_task_id,
+            requestBody: { status: googleStatus },
+          });
+        }
+      } catch (googleErr) {
+        console.error('Google Tasks sync error (non-fatal):', googleErr.message);
+      }
+    }
+
     // Return all tasks for the project so the frontend can sync
     const allTasks = await client.query(
       'SELECT * FROM tasks WHERE project_id = $1 ORDER BY position',
@@ -165,12 +214,12 @@ router.put('/:id', async (req, res) => {
     if (!(await verifyTaskOwnership(req.params.id, req.userId))) {
       return res.status(404).json({ error: 'Task not found' });
     }
-    const { title, description } = req.body;
+    const { title, description, due_date } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
 
     const result = await pool.query(
-      'UPDATE tasks SET title = $1, description = $2 WHERE id = $3 RETURNING *',
-      [title, description || '', req.params.id]
+      'UPDATE tasks SET title = $1, description = $2, due_date = $3 WHERE id = $4 RETURNING *',
+      [title, description || '', due_date || null, req.params.id]
     );
     res.json(result.rows[0]);
   } catch (err) {

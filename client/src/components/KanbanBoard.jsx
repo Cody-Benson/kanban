@@ -5,6 +5,7 @@ import { DragDropContext } from '@hello-pangea/dnd';
 import KanbanColumn from './KanbanColumn';
 import TaskDialog from './TaskDialog';
 import { getTasks, createTask, updateTask, deleteTask, reorderTask } from '../api/tasks';
+import { getGoogleStatus } from '../api/google';
 
 const STATUSES = ['todo', 'in-progress', 'completed'];
 
@@ -14,6 +15,7 @@ export default function KanbanBoard({ projectId }) {
   const [error, setError] = useState('');
   const [taskDialog, setTaskDialog] = useState({ open: false, task: null });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, task: null });
+  const [googleConnected, setGoogleConnected] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -27,6 +29,12 @@ export default function KanbanBoard({ projectId }) {
   }, [projectId]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    getGoogleStatus()
+      .then((data) => setGoogleConnected(data.connected))
+      .catch(() => {});
+  }, []);
 
   // Group tasks by status
   const columns = {};
@@ -77,9 +85,9 @@ export default function KanbanBoard({ projectId }) {
     }
   };
 
-  const handleCreateTask = async (title, description) => {
+  const handleCreateTask = async (title, description, dueDate) => {
     try {
-      await createTask(projectId, title, description);
+      await createTask(projectId, title, description, dueDate);
       setTaskDialog({ open: false, task: null });
       load();
     } catch {
@@ -87,9 +95,9 @@ export default function KanbanBoard({ projectId }) {
     }
   };
 
-  const handleUpdateTask = async (title, description) => {
+  const handleUpdateTask = async (title, description, dueDate) => {
     try {
-      await updateTask(taskDialog.task.id, title, description);
+      await updateTask(taskDialog.task.id, title, description, dueDate);
       setTaskDialog({ open: false, task: null });
       load();
     } catch {
@@ -142,6 +150,8 @@ export default function KanbanBoard({ projectId }) {
         task={taskDialog.task}
         onClose={() => setTaskDialog({ open: false, task: null })}
         onSave={taskDialog.task ? handleUpdateTask : handleCreateTask}
+        googleConnected={googleConnected}
+        onTaskLinked={load}
       />
 
       {/* Delete Confirmation */}
