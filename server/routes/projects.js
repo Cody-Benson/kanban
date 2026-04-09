@@ -65,7 +65,10 @@ router.get('/:id', async (req, res) => {
     if (!(await verifyProjectOwnership(req.params.id, req.userId))) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    const result = await pool.query('SELECT * FROM projects WHERE id = $1', [req.params.id]);
+    const result = await pool.query(
+      'SELECT p.*, c.name AS client_name FROM projects p JOIN clients c ON p.client_id = c.id WHERE p.id = $1',
+      [req.params.id]
+    );
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Get project error:', err);

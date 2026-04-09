@@ -32,7 +32,7 @@ export default function ProjectBoardPage() {
             sx={{ cursor: 'pointer' }}
             onClick={() => navigate(`/clients/${project.client_id}`)}
           >
-            Client
+            {project.client_name}
           </Link>
         )}
         <Typography color="text.primary">{project?.name}</Typography>
