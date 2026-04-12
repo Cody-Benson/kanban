@@ -5,12 +5,14 @@ import TaskCard from './TaskCard';
 const STATUS_LABELS = {
   'todo': 'To Do',
   'in-progress': 'In Progress',
+  'blocked': 'Blocked',
   'completed': 'Completed',
 };
 
 const STATUS_COLORS = {
   'todo': '#1976d2',
   'in-progress': '#ed6c02',
+  'blocked': '#d32f2f',
   'completed': '#2e7d32',
 };
 

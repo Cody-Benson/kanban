@@ -110,7 +110,7 @@ router.put('/reorder', async (req, res) => {
       return res.status(400).json({ error: 'taskId, newStatus, and newPosition are required' });
     }
 
-    if (!['todo', 'in-progress', 'completed'].includes(newStatus)) {
+    if (!['todo', 'in-progress', 'blocked', 'completed'].includes(newStatus)) {
       return res.status(400).json({ error: 'Invalid status' });
     }
 

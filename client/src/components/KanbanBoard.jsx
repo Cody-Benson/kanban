@@ -7,7 +7,7 @@ import TaskDialog from './TaskDialog';
 import { getTasks, createTask, updateTask, deleteTask, reorderTask } from '../api/tasks';
 import { getGoogleStatus } from '../api/google';
 
-const STATUSES = ['todo', 'in-progress', 'completed'];
+const STATUSES = ['todo', 'in-progress', 'blocked', 'completed'];
 
 export default function KanbanBoard({ projectId }) {
   const [tasks, setTasks] = useState([]);

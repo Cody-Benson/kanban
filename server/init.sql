@@ -29,7 +29,7 @@ CREATE TABLE tasks (
   project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   title VARCHAR(255) NOT NULL,
   description TEXT DEFAULT '',
-  status VARCHAR(20) NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'in-progress', 'completed')),
+  status VARCHAR(20) NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'in-progress', 'blocked', 'completed')),
   position INTEGER NOT NULL DEFAULT 0,
   due_date DATE,
   google_task_id VARCHAR(255),
