@@ -7,10 +7,25 @@ router.use(auth);
 
 router.get('/', async (req, res) => {
   try {
-    const result = await pool.query(
-      'SELECT * FROM clients WHERE user_id = $1 ORDER BY created_at DESC',
-      [req.userId]
-    );
+    const { teamId } = req.query;
+    let result;
+    if (teamId) {
+      result = await pool.query(
+        `SELECT c.* FROM clients c
+         JOIN team_members tm ON c.team_id = tm.team_id
+         WHERE c.team_id = $1 AND tm.user_id = $2
+         ORDER BY c.created_at DESC`,
+        [teamId, req.userId]
+      );
+    } else {
+      result = await pool.query(
+        `SELECT c.* FROM clients c
+         JOIN team_members tm ON c.team_id = tm.team_id
+         WHERE tm.user_id = $1
+         ORDER BY c.created_at DESC`,
+        [req.userId]
+      );
+    }
     res.json(result.rows);
   } catch (err) {
     console.error('Get clients error:', err);
@@ -20,12 +35,22 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name, teamId } = req.body;
     if (!name) return res.status(400).json({ error: 'Name is required' });
+    if (!teamId) return res.status(400).json({ error: 'teamId is required' });
+
+    // Verify user is a member of the team
+    const membership = await pool.query(
+      'SELECT id FROM team_members WHERE team_id = $1 AND user_id = $2',
+      [teamId, req.userId]
+    );
+    if (membership.rows.length === 0) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
 
     const result = await pool.query(
-      'INSERT INTO clients (user_id, name) VALUES ($1, $2) RETURNING *',
-      [req.userId, name]
+      'INSERT INTO clients (user_id, team_id, name) VALUES ($1, $2, $3) RETURNING *',
+      [req.userId, teamId, name]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -37,7 +62,9 @@ router.post('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT * FROM clients WHERE id = $1 AND user_id = $2',
+      `SELECT c.* FROM clients c
+       JOIN team_members tm ON c.team_id = tm.team_id
+       WHERE c.id = $1 AND tm.user_id = $2`,
       [req.params.id, req.userId]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Client not found' });
@@ -54,7 +81,9 @@ router.put('/:id', async (req, res) => {
     if (!name) return res.status(400).json({ error: 'Name is required' });
 
     const result = await pool.query(
-      'UPDATE clients SET name = $1 WHERE id = $2 AND user_id = $3 RETURNING *',
+      `UPDATE clients SET name = $1
+       WHERE id = $2 AND team_id IN (SELECT team_id FROM team_members WHERE user_id = $3)
+       RETURNING *`,
       [name, req.params.id, req.userId]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Client not found' });
@@ -68,7 +97,9 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const result = await pool.query(
-      'DELETE FROM clients WHERE id = $1 AND user_id = $2 RETURNING id',
+      `DELETE FROM clients
+       WHERE id = $1 AND team_id IN (SELECT team_id FROM team_members WHERE user_id = $2)
+       RETURNING id`,
       [req.params.id, req.userId]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Client not found' });

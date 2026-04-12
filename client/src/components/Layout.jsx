@@ -1,9 +1,11 @@
-import { AppBar, Toolbar, Typography, Button, Container, Box } from '@mui/material';
+import { AppBar, Toolbar, Typography, Button, Container, Box, IconButton, Chip } from '@mui/material';
+import SettingsIcon from '@mui/icons-material/Settings';
+import GroupIcon from '@mui/icons-material/Group';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function Layout({ children }) {
-  const { logout } = useAuth();
+  const { logout, currentTeam, teamsLoading } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -17,11 +19,24 @@ export default function Layout({ children }) {
         <Toolbar>
           <Typography
             variant="h6"
-            sx={{ flexGrow: 1, cursor: 'pointer' }}
+            sx={{ cursor: 'pointer', mr: 2 }}
             onClick={() => navigate('/')}
           >
             Kanban Board
           </Typography>
+          {!teamsLoading && currentTeam && (
+            <Chip
+              icon={<GroupIcon />}
+              label={currentTeam.name}
+              sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.5)', mr: 1 }}
+              variant="outlined"
+              size="small"
+            />
+          )}
+          <Box sx={{ flexGrow: 1 }} />
+          <IconButton color="inherit" onClick={() => navigate('/team-settings')} title="Team Settings">
+            <SettingsIcon />
+          </IconButton>
           <Button color="inherit" onClick={handleLogout}>
             Logout
           </Button>

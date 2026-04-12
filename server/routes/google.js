@@ -96,12 +96,13 @@ router.post('/tasks', auth, async (req, res) => {
     const { taskId } = req.body;
     if (!taskId) return res.status(400).json({ error: 'taskId is required' });
 
-    // Verify task ownership
+    // Verify task ownership via team membership
     const taskResult = await pool.query(
       `SELECT t.* FROM tasks t
        JOIN projects p ON t.project_id = p.id
        JOIN clients c ON p.client_id = c.id
-       WHERE t.id = $1 AND c.user_id = $2`,
+       JOIN team_members tm ON c.team_id = tm.team_id
+       WHERE t.id = $1 AND tm.user_id = $2`,
       [taskId, req.userId]
     );
     if (taskResult.rows.length === 0) {

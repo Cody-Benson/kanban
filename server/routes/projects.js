@@ -5,19 +5,24 @@ const auth = require('../middleware/auth');
 const router = express.Router();
 router.use(auth);
 
-// Verify a client belongs to the authenticated user
+// Verify a client belongs to a team the user is a member of
 async function verifyClientOwnership(clientId, userId) {
   const result = await pool.query(
-    'SELECT id FROM clients WHERE id = $1 AND user_id = $2',
+    `SELECT c.id FROM clients c
+     JOIN team_members tm ON c.team_id = tm.team_id
+     WHERE c.id = $1 AND tm.user_id = $2`,
     [clientId, userId]
   );
   return result.rows.length > 0;
 }
 
-// Verify a project belongs to the authenticated user (via client)
+// Verify a project belongs to a team the user is a member of
 async function verifyProjectOwnership(projectId, userId) {
   const result = await pool.query(
-    'SELECT p.id FROM projects p JOIN clients c ON p.client_id = c.id WHERE p.id = $1 AND c.user_id = $2',
+    `SELECT p.id FROM projects p
+     JOIN clients c ON p.client_id = c.id
+     JOIN team_members tm ON c.team_id = tm.team_id
+     WHERE p.id = $1 AND tm.user_id = $2`,
     [projectId, userId]
   );
   return result.rows.length > 0;

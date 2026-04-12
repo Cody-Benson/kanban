@@ -3,7 +3,8 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import TaskAltIcon from '@mui/icons-material/TaskAlt';
-import { Tooltip } from '@mui/material';
+import PersonIcon from '@mui/icons-material/Person';
+import { Tooltip, Avatar } from '@mui/material';
 import { Draggable } from '@hello-pangea/dnd';
 
 export default function TaskCard({ task, index, onEdit, onDelete }) {
@@ -45,6 +46,13 @@ export default function TaskCard({ task, index, onEdit, onDelete }) {
                   {task.google_task_id && (
                     <Tooltip title="Linked to Google Tasks" arrow>
                       <TaskAltIcon sx={{ fontSize: 14, color: '#4285f4' }} />
+                    </Tooltip>
+                  )}
+                  {task.assigned_email && (
+                    <Tooltip title={task.assigned_email} arrow>
+                      <Avatar sx={{ width: 20, height: 20, fontSize: 11, bgcolor: '#1976d2' }}>
+                        {task.assigned_email[0].toUpperCase()}
+                      </Avatar>
                     </Tooltip>
                   )}
                 </Box>

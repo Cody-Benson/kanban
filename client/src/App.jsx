@@ -8,6 +8,7 @@ import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import ClientDetailPage from './pages/ClientDetailPage';
 import ProjectBoardPage from './pages/ProjectBoardPage';
+import TeamSettingsPage from './pages/TeamSettingsPage';
 
 export default function App() {
   return (
@@ -39,6 +40,14 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <Layout><ProjectBoardPage /></Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/team-settings"
+              element={
+                <ProtectedRoute>
+                  <Layout><TeamSettingsPage /></Layout>
                 </ProtectedRoute>
               }
             />

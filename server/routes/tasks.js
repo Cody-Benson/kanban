@@ -5,22 +5,26 @@ const auth = require('../middleware/auth');
 const router = express.Router();
 router.use(auth);
 
-// Verify a project belongs to the authenticated user
+// Verify a project belongs to a team the user is a member of
 async function verifyProjectOwnership(projectId, userId) {
   const result = await pool.query(
-    'SELECT p.id FROM projects p JOIN clients c ON p.client_id = c.id WHERE p.id = $1 AND c.user_id = $2',
+    `SELECT p.id FROM projects p
+     JOIN clients c ON p.client_id = c.id
+     JOIN team_members tm ON c.team_id = tm.team_id
+     WHERE p.id = $1 AND tm.user_id = $2`,
     [projectId, userId]
   );
   return result.rows.length > 0;
 }
 
-// Verify a task belongs to the authenticated user
+// Verify a task belongs to a team the user is a member of
 async function verifyTaskOwnership(taskId, userId) {
   const result = await pool.query(
     `SELECT t.id FROM tasks t
      JOIN projects p ON t.project_id = p.id
      JOIN clients c ON p.client_id = c.id
-     WHERE t.id = $1 AND c.user_id = $2`,
+     JOIN team_members tm ON c.team_id = tm.team_id
+     WHERE t.id = $1 AND tm.user_id = $2`,
     [taskId, userId]
   );
   return result.rows.length > 0;
@@ -33,7 +37,11 @@ router.get('/by-project/:projectId', async (req, res) => {
       return res.status(404).json({ error: 'Project not found' });
     }
     const result = await pool.query(
-      'SELECT * FROM tasks WHERE project_id = $1 ORDER BY position',
+      `SELECT t.*, u.email AS assigned_email
+       FROM tasks t
+       LEFT JOIN users u ON t.assigned_to = u.id
+       WHERE t.project_id = $1
+       ORDER BY t.position`,
       [req.params.projectId]
     );
     res.json(result.rows);
@@ -49,8 +57,22 @@ router.post('/by-project/:projectId', async (req, res) => {
     if (!(await verifyProjectOwnership(req.params.projectId, req.userId))) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    const { title, description, due_date } = req.body;
+    const { title, description, due_date, assigned_to } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
+
+    // Validate assigned_to is a team member if provided
+    if (assigned_to) {
+      const memberCheck = await pool.query(
+        `SELECT tm.id FROM team_members tm
+         JOIN clients c ON c.team_id = tm.team_id
+         JOIN projects p ON p.client_id = c.id
+         WHERE p.id = $1 AND tm.user_id = $2`,
+        [req.params.projectId, assigned_to]
+      );
+      if (memberCheck.rows.length === 0) {
+        return res.status(400).json({ error: 'Assigned user is not a team member' });
+      }
+    }
 
     // Get the next position for 'todo' column
     const posResult = await pool.query(
@@ -59,8 +81,8 @@ router.post('/by-project/:projectId', async (req, res) => {
     );
 
     const result = await pool.query(
-      'INSERT INTO tasks (project_id, title, description, status, position, due_date) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-      [req.params.projectId, title, description || '', 'todo', posResult.rows[0].next_pos, due_date || null]
+      'INSERT INTO tasks (project_id, title, description, status, position, due_date, assigned_to) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+      [req.params.projectId, title, description || '', 'todo', posResult.rows[0].next_pos, due_date || null, assigned_to || null]
     );
     const newTask = result.rows[0];
 
@@ -181,7 +203,11 @@ router.put('/reorder', async (req, res) => {
 
     // Return all tasks for the project so the frontend can sync
     const allTasks = await client.query(
-      'SELECT * FROM tasks WHERE project_id = $1 ORDER BY position',
+      `SELECT t.*, u.email AS assigned_email
+       FROM tasks t
+       LEFT JOIN users u ON t.assigned_to = u.id
+       WHERE t.project_id = $1
+       ORDER BY t.position`,
       [projectId]
     );
     res.json(allTasks.rows);
@@ -214,12 +240,12 @@ router.put('/:id', async (req, res) => {
     if (!(await verifyTaskOwnership(req.params.id, req.userId))) {
       return res.status(404).json({ error: 'Task not found' });
     }
-    const { title, description, due_date } = req.body;
+    const { title, description, due_date, assigned_to } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
 
     const result = await pool.query(
-      'UPDATE tasks SET title = $1, description = $2, due_date = $3 WHERE id = $4 RETURNING *',
-      [title, description || '', due_date || null, req.params.id]
+      'UPDATE tasks SET title = $1, description = $2, due_date = $3, assigned_to = $4 WHERE id = $5 RETURNING *',
+      [title, description || '', due_date || null, assigned_to || null, req.params.id]
     );
     res.json(result.rows[0]);
   } catch (err) {

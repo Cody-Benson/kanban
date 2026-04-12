@@ -6,16 +6,20 @@ import KanbanColumn from './KanbanColumn';
 import TaskDialog from './TaskDialog';
 import { getTasks, createTask, updateTask, deleteTask, reorderTask } from '../api/tasks';
 import { getGoogleStatus } from '../api/google';
+import { getTeamMembers } from '../api/teams';
+import { useAuth } from '../context/AuthContext';
 
 const STATUSES = ['todo', 'in-progress', 'blocked', 'completed'];
 
 export default function KanbanBoard({ projectId }) {
+  const { currentTeam } = useAuth();
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [taskDialog, setTaskDialog] = useState({ open: false, task: null });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, task: null });
   const [googleConnected, setGoogleConnected] = useState(false);
+  const [teamMembers, setTeamMembers] = useState([]);
 
   const load = useCallback(async () => {
     try {
@@ -34,7 +38,12 @@ export default function KanbanBoard({ projectId }) {
     getGoogleStatus()
       .then((data) => setGoogleConnected(data.connected))
       .catch(() => {});
-  }, []);
+    if (currentTeam?.id) {
+      getTeamMembers(currentTeam.id)
+        .then(setTeamMembers)
+        .catch(() => {});
+    }
+  }, [currentTeam?.id]);
 
   // Group tasks by status
   const columns = {};
@@ -85,9 +94,9 @@ export default function KanbanBoard({ projectId }) {
     }
   };
 
-  const handleCreateTask = async (title, description, dueDate) => {
+  const handleCreateTask = async (title, description, dueDate, assignedTo) => {
     try {
-      await createTask(projectId, title, description, dueDate);
+      await createTask(projectId, title, description, dueDate, assignedTo);
       setTaskDialog({ open: false, task: null });
       load();
     } catch {
@@ -95,9 +104,9 @@ export default function KanbanBoard({ projectId }) {
     }
   };
 
-  const handleUpdateTask = async (title, description, dueDate) => {
+  const handleUpdateTask = async (title, description, dueDate, assignedTo) => {
     try {
-      await updateTask(taskDialog.task.id, title, description, dueDate);
+      await updateTask(taskDialog.task.id, title, description, dueDate, assignedTo);
       setTaskDialog({ open: false, task: null });
       load();
     } catch {
@@ -152,6 +161,7 @@ export default function KanbanBoard({ projectId }) {
         onSave={taskDialog.task ? handleUpdateTask : handleCreateTask}
         googleConnected={googleConnected}
         onTaskLinked={load}
+        teamMembers={teamMembers}
       />
 
       {/* Delete Confirmation */}
