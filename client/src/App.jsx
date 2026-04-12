@@ -9,6 +9,7 @@ import DashboardPage from './pages/DashboardPage';
 import ClientDetailPage from './pages/ClientDetailPage';
 import ProjectBoardPage from './pages/ProjectBoardPage';
 import TeamSettingsPage from './pages/TeamSettingsPage';
+import TeamsPage from './pages/TeamsPage';
 
 export default function App() {
   return (
@@ -40,6 +41,14 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <Layout><ProjectBoardPage /></Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/teams"
+              element={
+                <ProtectedRoute>
+                  <Layout><TeamsPage /></Layout>
                 </ProtectedRoute>
               }
             />

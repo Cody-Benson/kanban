@@ -17,7 +17,8 @@ async function verifyTeamMembership(teamId, userId) {
 router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT t.* FROM teams t
+      `SELECT t.*, (SELECT COUNT(*) FROM team_members WHERE team_id = t.id) AS member_count
+       FROM teams t
        JOIN team_members tm ON t.id = tm.team_id
        WHERE tm.user_id = $1
        ORDER BY t.created_at`,

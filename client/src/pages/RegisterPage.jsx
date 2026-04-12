@@ -15,7 +15,7 @@ export default function RegisterPage() {
     setError('');
     try {
       await register(email, password);
-      navigate('/');
+      navigate('/teams');
     } catch (err) {
       setError(err.response?.data?.error || 'Registration failed');
     }

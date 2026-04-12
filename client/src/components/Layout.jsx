@@ -20,7 +20,7 @@ export default function Layout({ children }) {
           <Typography
             variant="h6"
             sx={{ cursor: 'pointer', mr: 2 }}
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/teams')}
           >
             Kanban Board
           </Typography>
