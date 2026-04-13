@@ -15,7 +15,7 @@ export default function LoginPage() {
     setError('');
     try {
       await login(email, password);
-      navigate('/teams');
+      navigate('/orgs');
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed');
     }

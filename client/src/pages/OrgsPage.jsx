@@ -2,15 +2,15 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Typography, Box, Paper, Card, CardContent, CardActionArea,
-  Grid, TextField, Button, Alert, CircularProgress, Breadcrumbs, Link,
+  Grid, TextField, Button, Alert, CircularProgress,
 } from '@mui/material';
-import GroupIcon from '@mui/icons-material/Group';
+import CorporateFareIcon from '@mui/icons-material/CorporateFare';
 import AddIcon from '@mui/icons-material/Add';
-import { createTeam, getPendingInvites, acceptInvite, declineInvite } from '../api/teams';
+import { getPendingOrgInvites, acceptOrgInvite, declineOrgInvite, createOrg } from '../api/orgs';
 import { useAuth } from '../context/AuthContext';
 
-export default function TeamsPage() {
-  const { teams, currentOrg, switchTeam, refreshTeams, loading } = useAuth();
+export default function OrgsPage() {
+  const { orgs, switchOrg, refreshOrgs, loading } = useAuth();
   const [newName, setNewName] = useState('');
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
@@ -18,24 +18,24 @@ export default function TeamsPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    getPendingInvites().then(setPendingInvites).catch(() => {});
+    getPendingOrgInvites().then(setPendingInvites).catch(() => {});
   }, []);
 
-  const handleSelectTeam = (team) => {
-    switchTeam(team.id);
-    navigate('/');
+  const handleSelectOrg = async (org) => {
+    await switchOrg(org.id);
+    navigate('/teams');
   };
 
   const handleCreate = async (e) => {
     e.preventDefault();
-    if (!newName.trim() || !currentOrg) return;
+    if (!newName.trim()) return;
     setCreating(true);
     try {
-      await createTeam(newName.trim(), currentOrg.id);
+      await createOrg(newName.trim());
       setNewName('');
-      await refreshTeams();
+      await refreshOrgs();
     } catch {
-      setError('Failed to create team');
+      setError('Failed to create organization');
     } finally {
       setCreating(false);
     }
@@ -43,9 +43,9 @@ export default function TeamsPage() {
 
   const handleAcceptInvite = async (inviteId) => {
     try {
-      await acceptInvite(inviteId);
+      await acceptOrgInvite(inviteId);
       setPendingInvites((prev) => prev.filter((i) => i.id !== inviteId));
-      await refreshTeams();
+      await refreshOrgs();
     } catch {
       setError('Failed to accept invite');
     }
@@ -53,7 +53,7 @@ export default function TeamsPage() {
 
   const handleDeclineInvite = async (inviteId) => {
     try {
-      await declineInvite(inviteId);
+      await declineOrgInvite(inviteId);
       setPendingInvites((prev) => prev.filter((i) => i.id !== inviteId));
     } catch {
       setError('Failed to decline invite');
@@ -62,33 +62,15 @@ export default function TeamsPage() {
 
   if (loading) return <CircularProgress sx={{ display: 'block', mx: 'auto', mt: 4 }} />;
 
-  if (!currentOrg) {
-    return (
-      <>
-        <Typography color="text.secondary">No organization selected.</Typography>
-        <Button variant="contained" sx={{ mt: 2 }} onClick={() => navigate('/orgs')}>
-          Select an Organization
-        </Button>
-      </>
-    );
-  }
-
   return (
     <>
-      <Breadcrumbs sx={{ mb: 2 }}>
-        <Link underline="hover" color="inherit" sx={{ cursor: 'pointer' }} onClick={() => navigate('/orgs')}>
-          Organizations
-        </Link>
-        <Typography color="text.primary">{currentOrg.name} — Teams</Typography>
-      </Breadcrumbs>
-
       {pendingInvites.length > 0 && (
         <Paper sx={{ p: 2, mb: 3, backgroundColor: '#e3f2fd' }}>
-          <Typography variant="subtitle2" gutterBottom>Pending Team Invites</Typography>
+          <Typography variant="subtitle2" gutterBottom>Pending Organization Invites</Typography>
           {pendingInvites.map((invite) => (
             <Box key={invite.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
               <Typography variant="body2" sx={{ flex: 1 }}>
-                You've been invited to join <strong>{invite.team_name}</strong>
+                You've been invited to join <strong>{invite.org_name}</strong>
               </Typography>
               <Button size="small" variant="contained" onClick={() => handleAcceptInvite(invite.id)}>
                 Accept
@@ -101,40 +83,40 @@ export default function TeamsPage() {
         </Paper>
       )}
 
-      <Typography variant="h4" gutterBottom>Teams</Typography>
+      <Typography variant="h4" gutterBottom>Your Organizations</Typography>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
       <Paper sx={{ p: 2, mb: 3 }}>
         <form onSubmit={handleCreate}>
           <Box sx={{ display: 'flex', gap: 2 }}>
             <TextField
-              label="New team name"
+              label="New organization name"
               size="small"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               sx={{ flex: 1 }}
             />
             <Button type="submit" variant="contained" startIcon={<AddIcon />} disabled={creating}>
-              Create Team
+              Create Organization
             </Button>
           </Box>
         </form>
       </Paper>
 
-      {teams.length === 0 ? (
-        <Typography color="text.secondary">No teams yet. Create one above.</Typography>
+      {orgs.length === 0 ? (
+        <Typography color="text.secondary">No organizations yet. Create one above.</Typography>
       ) : (
         <Grid container spacing={2}>
-          {teams.map((team) => (
-            <Grid item xs={12} sm={6} md={4} key={team.id}>
+          {orgs.map((org) => (
+            <Grid item xs={12} sm={6} md={4} key={org.id}>
               <Card>
-                <CardActionArea onClick={() => handleSelectTeam(team)}>
+                <CardActionArea onClick={() => handleSelectOrg(org)}>
                   <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <GroupIcon color="primary" sx={{ fontSize: 40 }} />
+                    <CorporateFareIcon color="primary" sx={{ fontSize: 40 }} />
                     <Box>
-                      <Typography variant="h6">{team.name}</Typography>
+                      <Typography variant="h6">{org.name}</Typography>
                       <Typography variant="body2" color="text.secondary">
-                        {team.member_count} {Number(team.member_count) === 1 ? 'member' : 'members'}
+                        {org.member_count} {Number(org.member_count) === 1 ? 'member' : 'members'}
                       </Typography>
                     </Box>
                   </CardContent>

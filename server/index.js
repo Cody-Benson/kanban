@@ -9,6 +9,7 @@ const projectRoutes = require('./routes/projects');
 const taskRoutes = require('./routes/tasks');
 const googleRoutes = require('./routes/google');
 const teamRoutes = require('./routes/teams');
+const orgRoutes = require('./routes/orgs');
 
 const app = express();
 
@@ -22,6 +23,7 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/google', googleRoutes);
 app.use('/api/teams', teamRoutes);
+app.use('/api/orgs', orgRoutes);
 
 // Serve static frontend in production
 const clientDist = path.join(__dirname, '..', 'client', 'dist');
@@ -96,6 +98,35 @@ async function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_team_members_user_id ON team_members(user_id);
     CREATE INDEX IF NOT EXISTS idx_team_members_team_id ON team_members(team_id);
     CREATE INDEX IF NOT EXISTS idx_team_invites_email ON team_invites(email);
+
+    -- Organizations tables
+    CREATE TABLE IF NOT EXISTS organizations (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS org_members (
+      id SERIAL PRIMARY KEY,
+      org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(org_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS org_invites (
+      id SERIAL PRIMARY KEY,
+      org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      email VARCHAR(255) NOT NULL,
+      invited_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(org_id, email)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_org_members_user_id ON org_members(user_id);
+    CREATE INDEX IF NOT EXISTS idx_org_members_org_id ON org_members(org_id);
+    CREATE INDEX IF NOT EXISTS idx_org_invites_email ON org_invites(email);
   `);
 
   // Add team_id to clients (if not already present)
@@ -155,6 +186,60 @@ async function runMigrations() {
       IF NOT EXISTS (SELECT 1 FROM clients WHERE team_id IS NULL) THEN
         BEGIN
           ALTER TABLE clients ALTER COLUMN team_id SET NOT NULL;
+        EXCEPTION WHEN others THEN
+          NULL; -- already NOT NULL
+        END;
+      END IF;
+    END $$;
+  `);
+
+  // Add org_id to teams (if not already present)
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'teams' AND column_name = 'org_id'
+      ) THEN
+        ALTER TABLE teams ADD COLUMN org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE;
+      END IF;
+    END $$;
+
+    CREATE INDEX IF NOT EXISTS idx_teams_org_id ON teams(org_id);
+  `);
+
+  // Data migration: create default org for each user with teams not yet assigned to an org
+  await pool.query(`
+    DO $$
+    DECLARE
+      r RECORD;
+      new_org_id INTEGER;
+    BEGIN
+      FOR r IN SELECT DISTINCT u.id, u.email FROM users u
+        JOIN team_members tm ON u.id = tm.user_id
+        JOIN teams t ON tm.team_id = t.id
+        WHERE t.org_id IS NULL
+      LOOP
+        INSERT INTO organizations (name, created_by) VALUES (r.email || '''s Org', r.id)
+        RETURNING id INTO new_org_id;
+
+        INSERT INTO org_members (org_id, user_id) VALUES (new_org_id, r.id)
+        ON CONFLICT DO NOTHING;
+
+        UPDATE teams SET org_id = new_org_id
+        WHERE id IN (SELECT team_id FROM team_members WHERE user_id = r.id)
+        AND org_id IS NULL;
+      END LOOP;
+    END $$;
+  `);
+
+  // Make org_id NOT NULL once all rows are migrated
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM teams WHERE org_id IS NULL) THEN
+        BEGIN
+          ALTER TABLE teams ALTER COLUMN org_id SET NOT NULL;
         EXCEPTION WHEN others THEN
           NULL; -- already NOT NULL
         END;

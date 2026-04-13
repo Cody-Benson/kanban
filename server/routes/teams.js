@@ -13,17 +13,23 @@ async function verifyTeamMembership(teamId, userId) {
   return result.rows.length > 0;
 }
 
-// GET /api/teams — list teams the current user belongs to
+// GET /api/teams — list teams the current user belongs to (optionally filtered by orgId)
 router.get('/', async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT t.*, (SELECT COUNT(*) FROM team_members WHERE team_id = t.id) AS member_count
+    const { orgId } = req.query;
+    let query = `SELECT t.*, (SELECT COUNT(*) FROM team_members WHERE team_id = t.id) AS member_count
        FROM teams t
        JOIN team_members tm ON t.id = tm.team_id
-       WHERE tm.user_id = $1
-       ORDER BY t.created_at`,
-      [req.userId]
-    );
+       WHERE tm.user_id = $1`;
+    const params = [req.userId];
+
+    if (orgId) {
+      params.push(orgId);
+      query += ` AND t.org_id = $${params.length}`;
+    }
+
+    query += ' ORDER BY t.created_at';
+    const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
     console.error('Get teams error:', err);
@@ -34,16 +40,26 @@ router.get('/', async (req, res) => {
 // POST /api/teams — create a new team
 router.post('/', async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name, orgId } = req.body;
     if (!name) return res.status(400).json({ error: 'Name is required' });
+    if (!orgId) return res.status(400).json({ error: 'orgId is required' });
+
+    // Verify user is a member of the org
+    const orgCheck = await pool.query(
+      'SELECT id FROM org_members WHERE org_id = $1 AND user_id = $2',
+      [orgId, req.userId]
+    );
+    if (orgCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Organization not found' });
+    }
 
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
 
       const teamResult = await client.query(
-        'INSERT INTO teams (name, created_by) VALUES ($1, $2) RETURNING *',
-        [name, req.userId]
+        'INSERT INTO teams (name, created_by, org_id) VALUES ($1, $2, $3) RETURNING *',
+        [name, req.userId, orgId]
       );
       const team = teamResult.rows[0];
 

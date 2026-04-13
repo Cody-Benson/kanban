@@ -1,7 +1,7 @@
 import api from './axios';
 
-export const getTeams = () => api.get('/teams').then((r) => r.data);
-export const createTeam = (name) => api.post('/teams', { name }).then((r) => r.data);
+export const getTeams = (orgId) => api.get('/teams', { params: orgId ? { orgId } : {} }).then((r) => r.data);
+export const createTeam = (name, orgId) => api.post('/teams', { name, orgId }).then((r) => r.data);
 export const getTeam = (teamId) => api.get(`/teams/${teamId}`).then((r) => r.data);
 export const getTeamMembers = (teamId) => api.get(`/teams/${teamId}/members`).then((r) => r.data);
 export const inviteMember = (teamId, email) => api.post(`/teams/${teamId}/invite`, { email }).then((r) => r.data);

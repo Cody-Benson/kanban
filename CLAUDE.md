@@ -1,6 +1,6 @@
 # Kanban Board
 
-A task management app organized as **Clients > Projects > Tasks**. Each user manages their own clients, creates projects under them, and tracks tasks on a Kanban board with drag-and-drop.
+A task management app organized as **Organizations > Teams > Clients > Projects > Tasks**. Users belong to organizations, each org has teams, and teams manage clients, projects, and tasks on a Kanban board with drag-and-drop.
 
 ## Tech Stack
 
@@ -16,10 +16,10 @@ kanban-board/
   package.json              # npm workspaces root
   client/                   # React frontend (Vite, port 5173)
     src/
-      api/                  # axios instance + API modules (auth, clients, projects, tasks)
+      api/                  # axios instance + API modules (auth, orgs, teams, clients, projects, tasks)
       context/              # AuthContext (JWT token + user state)
       components/           # Layout, ProtectedRoute, KanbanBoard, KanbanColumn, TaskCard, TaskDialog
-      pages/                # LoginPage, RegisterPage, DashboardPage, ClientDetailPage, ProjectBoardPage
+      pages/                # LoginPage, RegisterPage, OrgsPage, OrgSettingsPage, TeamsPage, TeamSettingsPage, DashboardPage, ClientDetailPage, ProjectBoardPage
   server/                   # Express backend (port 3001)
     index.js                # App entry point
     db.js                   # pg Pool connection
@@ -36,10 +36,13 @@ kanban-board/
 
 ## Data Model
 
-`users → clients → projects → tasks` with cascading deletes.
+`users → organizations → teams → clients → projects → tasks` with cascading deletes.
 
-- **tasks** have a `status` (todo, in-progress, completed) and `position` (integer for column ordering)
-- All data is scoped to the authenticated user via ownership verification joins
+- **organizations** group teams; users belong to orgs via `org_members`
+- **teams** belong to one org (`org_id`); users belong to teams via `team_members`
+- **clients** belong to a team (`team_id`)
+- **tasks** have a `status` (todo, in-progress, blocked, completed) and `position` (integer for column ordering)
+- All data is scoped to the authenticated user via ownership verification joins through org/team membership
 
 ## Running
 
@@ -55,6 +58,10 @@ Requires a PostgreSQL database named `kanban`. Run `server/init.sql` to create t
 All routes except auth require a `Bearer` token in the Authorization header.
 
 - `POST /api/auth/register` / `POST /api/auth/login`
+- `GET|POST /api/orgs`, `GET /api/orgs/:id`, `GET /api/orgs/:id/members`, `POST /api/orgs/:id/invite`, `DELETE /api/orgs/:id/members/:userId`
+- `GET /api/orgs/invites/pending`, `POST /api/orgs/invites/:id/accept`, `POST /api/orgs/invites/:id/decline`
+- `GET|POST /api/teams`, `GET /api/teams/:id`, `GET /api/teams/:id/members`, `POST /api/teams/:id/invite`, `DELETE /api/teams/:id/members/:userId`
+- `GET /api/teams/invites/pending`, `POST /api/teams/invites/:id/accept`, `POST /api/teams/invites/:id/decline`
 - `GET|POST /api/clients`, `GET|PUT|DELETE /api/clients/:id`
 - `GET|POST /api/projects/by-client/:clientId`, `GET|PUT|DELETE /api/projects/:id`
 - `GET|POST /api/tasks/by-project/:projectId`, `GET|PUT|DELETE /api/tasks/:id`

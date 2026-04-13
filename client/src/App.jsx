@@ -10,6 +10,8 @@ import ClientDetailPage from './pages/ClientDetailPage';
 import ProjectBoardPage from './pages/ProjectBoardPage';
 import TeamSettingsPage from './pages/TeamSettingsPage';
 import TeamsPage from './pages/TeamsPage';
+import OrgsPage from './pages/OrgsPage';
+import OrgSettingsPage from './pages/OrgSettingsPage';
 
 export default function App() {
   return (
@@ -41,6 +43,22 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <Layout><ProjectBoardPage /></Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/orgs"
+              element={
+                <ProtectedRoute>
+                  <Layout><OrgsPage /></Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/org-settings"
+              element={
+                <ProtectedRoute>
+                  <Layout><OrgSettingsPage /></Layout>
                 </ProtectedRoute>
               }
             />

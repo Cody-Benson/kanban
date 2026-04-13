@@ -12,7 +12,7 @@ import { getPendingInvites, acceptInvite, declineInvite } from '../api/teams';
 import { useAuth } from '../context/AuthContext';
 
 export default function DashboardPage() {
-  const { currentTeam, teamsLoading, refreshTeams } = useAuth();
+  const { currentTeam, loading: authLoading, refreshTeams } = useAuth();
   const [clients, setClients] = useState([]);
   const [newName, setNewName] = useState('');
   const [loading, setLoading] = useState(true);
@@ -38,8 +38,8 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    if (!teamsLoading) load();
-  }, [currentTeam, teamsLoading]);
+    if (!authLoading) load();
+  }, [currentTeam, authLoading]);
 
   useEffect(() => {
     getPendingInvites().then(setPendingInvites).catch(() => {});
@@ -97,7 +97,7 @@ export default function DashboardPage() {
     }
   };
 
-  if (teamsLoading || loading) return <CircularProgress sx={{ display: 'block', mx: 'auto', mt: 4 }} />;
+  if (authLoading || loading) return <CircularProgress sx={{ display: 'block', mx: 'auto', mt: 4 }} />;
 
   return (
     <>
