@@ -260,7 +260,29 @@ router.delete('/:id', async (req, res) => {
     if (!(await verifyTaskOwnership(req.params.id, req.userId))) {
       return res.status(404).json({ error: 'Task not found' });
     }
+
+    // Fetch the linked Google Task id before deleting the row
+    const taskResult = await pool.query('SELECT google_task_id FROM tasks WHERE id = $1', [req.params.id]);
+    const googleTaskId = taskResult.rows[0]?.google_task_id;
+
     await pool.query('DELETE FROM tasks WHERE id = $1', [req.params.id]);
+
+    // Google Tasks sync: delete the linked Google Task (non-fatal)
+    if (googleTaskId) {
+      try {
+        const googleRoutes = require('./google');
+        const tasksClient = await googleRoutes.getTasksClient(req.userId);
+        if (tasksClient) {
+          await tasksClient.tasks.delete({
+            tasklist: '@default',
+            task: googleTaskId,
+          });
+        }
+      } catch (googleErr) {
+        console.error('Google Tasks delete sync error (non-fatal):', googleErr.message);
+      }
+    }
+
     res.json({ message: 'Task deleted' });
   } catch (err) {
     console.error('Delete task error:', err);
