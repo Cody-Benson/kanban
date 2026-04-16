@@ -2,6 +2,7 @@ import { AppBar, Toolbar, Typography, Button, Container, Box, IconButton, Chip }
 import SettingsIcon from '@mui/icons-material/Settings';
 import GroupIcon from '@mui/icons-material/Group';
 import CorporateFareIcon from '@mui/icons-material/CorporateFare';
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -46,6 +47,9 @@ export default function Layout({ children }) {
             />
           )}
           <Box sx={{ flexGrow: 1 }} />
+          <IconButton color="inherit" onClick={() => navigate('/account-settings')} title="Account Settings">
+            <AccountCircleIcon />
+          </IconButton>
           <Button color="inherit" onClick={handleLogout}>
             Logout
           </Button>

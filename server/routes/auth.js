@@ -1,7 +1,10 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const pool = require('../db');
+const { sendEmail } = require('../email');
+const auth = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -148,6 +151,115 @@ router.post('/login', async (req, res) => {
     });
   } catch (err) {
     console.error('Login error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Forgot password - send reset link via email
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    const result = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+    if (result.rows.length > 0) {
+      const userId = result.rows[0].id;
+
+      // Invalidate existing tokens
+      await pool.query(
+        'UPDATE password_reset_tokens SET used = true WHERE user_id = $1 AND used = false',
+        [userId]
+      );
+
+      // Generate new token
+      const token = crypto.randomBytes(32).toString('hex');
+      await pool.query(
+        "INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES ($1, $2, NOW() + INTERVAL '1 hour')",
+        [userId, token]
+      );
+
+      const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
+      try {
+        await sendEmail({
+          to: email,
+          subject: 'Password Reset - Kanban Board',
+          html: `
+            <h2>Password Reset</h2>
+            <p>You requested a password reset. Click the link below to set a new password:</p>
+            <p><a href="${resetUrl}">${resetUrl}</a></p>
+            <p>This link expires in 1 hour.</p>
+            <p>If you didn't request this, you can safely ignore this email.</p>
+          `,
+        });
+      } catch (emailErr) {
+        console.error('Failed to send reset email:', emailErr.message);
+        console.log('Password reset link:', resetUrl);
+      }
+    }
+
+    // Always return success to prevent email enumeration
+    res.json({ message: 'If an account with that email exists, a reset link has been sent.' });
+  } catch (err) {
+    console.error('Forgot password error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Reset password using token
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) {
+      return res.status(400).json({ error: 'Token and password are required' });
+    }
+
+    const result = await pool.query(
+      'SELECT * FROM password_reset_tokens WHERE token = $1 AND used = false AND expires_at > NOW()',
+      [token]
+    );
+    if (result.rows.length === 0) {
+      return res.status(400).json({ error: 'Invalid or expired reset token' });
+    }
+
+    const resetToken = result.rows[0];
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, resetToken.user_id]);
+    await pool.query('UPDATE password_reset_tokens SET used = true WHERE id = $1', [resetToken.id]);
+
+    res.json({ message: 'Password has been reset successfully' });
+  } catch (err) {
+    console.error('Reset password error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Change password (authenticated)
+router.put('/change-password', auth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current password and new password are required' });
+    }
+
+    const result = await pool.query('SELECT password_hash FROM users WHERE id = $1', [req.userId]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const valid = await bcrypt.compare(currentPassword, result.rows[0].password_hash);
+    if (!valid) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, req.userId]);
+
+    res.json({ message: 'Password changed successfully' });
+  } catch (err) {
+    console.error('Change password error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });

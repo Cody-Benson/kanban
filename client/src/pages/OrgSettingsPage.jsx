@@ -6,8 +6,9 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, Breadcrumbs, Link, Chip,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
 import PersonIcon from '@mui/icons-material/Person';
-import { getOrgMembers, inviteOrgMember, removeOrgMember } from '../api/orgs';
+import { getOrgMembers, inviteOrgMember, removeOrgMember, updateOrg, deleteOrg } from '../api/orgs';
 import { useAuth } from '../context/AuthContext';
 
 export default function OrgSettingsPage() {
@@ -18,7 +19,12 @@ export default function OrgSettingsPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [removeDialog, setRemoveDialog] = useState({ open: false, member: null });
+  const [editName, setEditName] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
   const navigate = useNavigate();
+  const isCreator = currentOrg?.created_by === user?.id;
 
   const loadMembers = async () => {
     if (!currentOrg) return;
@@ -67,6 +73,32 @@ export default function OrgSettingsPage() {
     }
   };
 
+  const handleRename = async (e) => {
+    e.preventDefault();
+    if (!editName.trim() || !currentOrg) return;
+    setError('');
+    try {
+      await updateOrg(currentOrg.id, editName.trim());
+      await refreshOrgs();
+      setEditing(false);
+      setSuccess('Organization renamed');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to rename organization');
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!currentOrg) return;
+    try {
+      await deleteOrg(currentOrg.id);
+      await refreshOrgs();
+      navigate('/orgs');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to delete organization');
+      setDeleteDialog(false);
+    }
+  };
+
   if (!currentOrg) {
     return <Typography color="text.secondary">No organization selected.</Typography>;
   }
@@ -82,7 +114,33 @@ export default function OrgSettingsPage() {
         <Typography color="text.primary">Organization Settings</Typography>
       </Breadcrumbs>
 
-      <Typography variant="h4" gutterBottom>{currentOrg.name}</Typography>
+      {editing ? (
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <form onSubmit={handleRename}>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              <TextField
+                label="Organization name"
+                size="small"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                sx={{ flex: 1 }}
+                autoFocus
+              />
+              <Button type="submit" variant="contained">Save</Button>
+              <Button onClick={() => setEditing(false)}>Cancel</Button>
+            </Box>
+          </form>
+        </Paper>
+      ) : (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+          <Typography variant="h4">{currentOrg.name}</Typography>
+          {isCreator && (
+            <IconButton size="small" onClick={() => { setEditName(currentOrg.name); setEditing(true); }}>
+              <EditIcon fontSize="small" />
+            </IconButton>
+          )}
+        </Box>
+      )}
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
@@ -136,6 +194,18 @@ export default function OrgSettingsPage() {
         ))}
       </List>
 
+      {isCreator && (
+        <Paper sx={{ p: 2, mt: 4, border: '1px solid', borderColor: 'error.main' }}>
+          <Typography variant="subtitle1" color="error" gutterBottom>Danger Zone</Typography>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            Deleting this organization will permanently remove all its teams, clients, projects, and tasks.
+          </Typography>
+          <Button color="error" variant="outlined" onClick={() => { setDeleteConfirmName(''); setDeleteDialog(true); }}>
+            Delete Organization
+          </Button>
+        </Paper>
+      )}
+
       <Dialog open={removeDialog.open} onClose={() => setRemoveDialog({ open: false, member: null })}>
         <DialogTitle>
           {removeDialog.member?.id === user?.id ? 'Leave Organization' : 'Remove Member'}
@@ -151,6 +221,36 @@ export default function OrgSettingsPage() {
           <Button onClick={() => setRemoveDialog({ open: false, member: null })}>Cancel</Button>
           <Button onClick={handleRemove} color="error" variant="contained">
             {removeDialog.member?.id === user?.id ? 'Leave' : 'Remove'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteDialog} onClose={() => setDeleteDialog(false)}>
+        <DialogTitle>Delete Organization</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ mb: 2 }}>
+            This will permanently delete <strong>{currentOrg.name}</strong> and all its teams, clients, projects, and tasks. This cannot be undone.
+          </Typography>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            Type the organization name to confirm:
+          </Typography>
+          <TextField
+            fullWidth
+            size="small"
+            value={deleteConfirmName}
+            onChange={(e) => setDeleteConfirmName(e.target.value)}
+            placeholder={currentOrg.name}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialog(false)}>Cancel</Button>
+          <Button
+            onClick={handleDelete}
+            color="error"
+            variant="contained"
+            disabled={deleteConfirmName !== currentOrg.name}
+          >
+            Delete
           </Button>
         </DialogActions>
       </Dialog>

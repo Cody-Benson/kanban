@@ -146,6 +146,43 @@ router.post('/invites/:inviteId/decline', async (req, res) => {
   }
 });
 
+// PUT /api/orgs/:orgId — update org (creator only)
+router.put('/:orgId', async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+
+    const result = await pool.query(
+      'UPDATE organizations SET name = $1 WHERE id = $2 AND created_by = $3 RETURNING *',
+      [name, req.params.orgId, req.userId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Organization not found or not authorized' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Update org error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// DELETE /api/orgs/:orgId — delete org (creator only)
+router.delete('/:orgId', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'DELETE FROM organizations WHERE id = $1 AND created_by = $2 RETURNING id',
+      [req.params.orgId, req.userId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Organization not found or not authorized' });
+    }
+    res.json({ message: 'Organization deleted' });
+  } catch (err) {
+    console.error('Delete org error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // GET /api/orgs/:orgId — get org details
 router.get('/:orgId', async (req, res) => {
   try {

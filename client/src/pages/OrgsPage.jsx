@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Typography, Box, Paper, Card, CardContent, CardActionArea,
-  Grid, TextField, Button, Alert, CircularProgress,
+  Grid, TextField, Button, Alert, CircularProgress, IconButton, Tooltip,
 } from '@mui/material';
 import CorporateFareIcon from '@mui/icons-material/CorporateFare';
+import SettingsIcon from '@mui/icons-material/Settings';
 import AddIcon from '@mui/icons-material/Add';
 import { getPendingOrgInvites, acceptOrgInvite, declineOrgInvite, createOrg } from '../api/orgs';
 import { useAuth } from '../context/AuthContext';
@@ -109,11 +110,11 @@ export default function OrgsPage() {
         <Grid container spacing={2}>
           {orgs.map((org) => (
             <Grid item xs={12} sm={6} md={4} key={org.id}>
-              <Card>
+              <Card sx={{ position: 'relative' }}>
                 <CardActionArea onClick={() => handleSelectOrg(org)}>
-                  <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, pr: 5 }}>
                     <CorporateFareIcon color="primary" sx={{ fontSize: 40 }} />
-                    <Box>
+                    <Box sx={{ flex: 1 }}>
                       <Typography variant="h6">{org.name}</Typography>
                       <Typography variant="body2" color="text.secondary">
                         {org.member_count} {Number(org.member_count) === 1 ? 'member' : 'members'}
@@ -121,6 +122,19 @@ export default function OrgsPage() {
                     </Box>
                   </CardContent>
                 </CardActionArea>
+                <Tooltip title="Organization settings">
+                  <IconButton
+                    size="small"
+                    sx={{ position: 'absolute', top: 8, right: 8 }}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      await switchOrg(org.id);
+                      navigate('/org-settings');
+                    }}
+                  >
+                    <SettingsIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
               </Card>
             </Grid>
           ))}

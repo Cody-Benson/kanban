@@ -157,6 +157,13 @@ async function runMigrations() {
     END $$;
   `);
 
+  // Update tasks.status CHECK constraint to include 'blocked'
+  await pool.query(`
+    ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;
+    ALTER TABLE tasks ADD CONSTRAINT tasks_status_check
+      CHECK (status IN ('todo', 'in-progress', 'blocked', 'completed'));
+  `);
+
   // Data migration: create default team for each user with un-migrated clients
   await pool.query(`
     DO $$
@@ -245,6 +252,20 @@ async function runMigrations() {
         END;
       END IF;
     END $$;
+  `);
+
+  // Password reset tokens table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token VARCHAR(64) UNIQUE NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      used BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens(token);
+    CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
   `);
 
   console.log('Database migrations completed.');

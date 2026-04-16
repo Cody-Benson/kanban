@@ -51,7 +51,10 @@ export default function LoginPage() {
             Login
           </Button>
         </form>
-        <Typography align="center" sx={{ mt: 2 }}>
+        <Typography align="center" sx={{ mt: 1 }}>
+          <Link component={RouterLink} to="/forgot-password">Forgot password?</Link>
+        </Typography>
+        <Typography align="center" sx={{ mt: 1 }}>
           Don't have an account?{' '}
           <Link component={RouterLink} to="/register">Register</Link>
         </Typography>

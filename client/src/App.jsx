@@ -12,6 +12,9 @@ import TeamSettingsPage from './pages/TeamSettingsPage';
 import TeamsPage from './pages/TeamsPage';
 import OrgsPage from './pages/OrgsPage';
 import OrgSettingsPage from './pages/OrgSettingsPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
+import AccountSettingsPage from './pages/AccountSettingsPage';
 
 export default function App() {
   return (
@@ -22,6 +25,8 @@ export default function App() {
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route
               path="/"
               element={
@@ -67,6 +72,14 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <Layout><TeamsPage /></Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/account-settings"
+              element={
+                <ProtectedRoute>
+                  <Layout><AccountSettingsPage /></Layout>
                 </ProtectedRoute>
               }
             />
