@@ -21,7 +21,7 @@ export default function ProjectBoardPage() {
 
   return (
     <>
-      <Breadcrumbs sx={{ mb: 2 }}>
+      <Breadcrumbs sx={{ mb: 1 }}>
         <Link underline="hover" color="inherit" sx={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
           Clients
         </Link>
@@ -38,8 +38,7 @@ export default function ProjectBoardPage() {
         <Typography color="text.primary">{project?.name}</Typography>
       </Breadcrumbs>
 
-      <Typography variant="h4" gutterBottom>{project?.name}</Typography>
-      <KanbanBoard projectId={projectId} />
+      <KanbanBoard projectId={projectId} projectName={project?.name} />
     </>
   );
 }

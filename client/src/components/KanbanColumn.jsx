@@ -1,4 +1,6 @@
-import { Paper, Typography, Box, Badge } from '@mui/material';
+import { Paper, Typography, Box, IconButton, Collapse } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { Droppable } from '@hello-pangea/dnd';
 import TaskCard from './TaskCard';
 
@@ -16,60 +18,99 @@ const STATUS_COLORS = {
   'completed': '#2e7d32',
 };
 
-export default function KanbanColumn({ status, tasks, onEdit, onDelete }) {
+const STATUS_TINTS = {
+  'todo': 'rgba(25, 118, 210, 0.06)',
+  'in-progress': 'rgba(237, 108, 2, 0.06)',
+  'blocked': 'rgba(211, 47, 47, 0.06)',
+  'completed': 'rgba(46, 125, 50, 0.06)',
+};
+
+export default function KanbanColumn({ status, tasks, onEdit, onDelete, collapsible = false, collapsed = false, onToggleCollapse }) {
+  const color = STATUS_COLORS[status];
+
   return (
     <Paper
+      elevation={0}
       sx={{
-        flex: 1,
-        minWidth: 280,
-        maxWidth: 400,
+        flex: collapsed ? '0 0 auto' : 1,
+        minWidth: collapsed ? 'auto' : 260,
         display: 'flex',
         flexDirection: 'column',
-        backgroundColor: '#f5f5f5',
+        backgroundColor: STATUS_TINTS[status],
+        border: '1px solid rgba(0,0,0,0.08)',
       }}
     >
       <Box
         sx={{
-          p: 2,
-          borderBottom: `3px solid ${STATUS_COLORS[status]}`,
+          px: 1.5,
+          py: 1,
           display: 'flex',
           alignItems: 'center',
           gap: 1,
+          cursor: collapsible ? 'pointer' : 'default',
         }}
+        onClick={collapsible ? onToggleCollapse : undefined}
       >
-        <Typography variant="h6" sx={{ fontWeight: 600 }}>
+        <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: color, flexShrink: 0 }} />
+        <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.primary' }}>
           {STATUS_LABELS[status]}
         </Typography>
-        <Badge badgeContent={tasks.length} color="primary" sx={{ ml: 1 }} />
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+          · {tasks.length}
+        </Typography>
+        {collapsible && (
+          <IconButton size="small" sx={{ ml: 'auto', p: 0.25 }}>
+            {collapsed ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+          </IconButton>
+        )}
       </Box>
 
-      <Droppable droppableId={status}>
-        {(provided, snapshot) => (
-          <Box
-            ref={provided.innerRef}
-            {...provided.droppableProps}
-            sx={{
-              p: 1,
-              flex: 1,
-              minHeight: 200,
-              overflowY: 'auto',
-              backgroundColor: snapshot.isDraggingOver ? '#e8eaf6' : 'transparent',
-              transition: 'background-color 0.2s',
-            }}
-          >
-            {tasks.map((task, index) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                index={index}
-                onEdit={onEdit}
-                onDelete={onDelete}
-              />
-            ))}
-            {provided.placeholder}
-          </Box>
-        )}
-      </Droppable>
+      {!collapsed && (
+        <Droppable droppableId={status}>
+          {(provided, snapshot) => (
+            <Box
+              ref={provided.innerRef}
+              {...provided.droppableProps}
+              sx={{
+                p: 1,
+                flex: 1,
+                minHeight: 120,
+                overflowY: 'auto',
+                backgroundColor: snapshot.isDraggingOver ? 'rgba(25, 118, 210, 0.08)' : 'transparent',
+                transition: 'background-color 0.2s',
+                borderTop: '1px solid rgba(0,0,0,0.06)',
+              }}
+            >
+              {tasks.length === 0 && !snapshot.isDraggingOver && (
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minHeight: 100,
+                    border: '1px dashed rgba(0,0,0,0.15)',
+                    borderRadius: 1,
+                    color: 'text.disabled',
+                  }}
+                >
+                  <Typography variant="caption">No tasks</Typography>
+                </Box>
+              )}
+              {tasks.map((task, index) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  index={index}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                  accentColor={color}
+                />
+              ))}
+              {provided.placeholder}
+            </Box>
+          )}
+        </Droppable>
+      )}
     </Paper>
   );
 }

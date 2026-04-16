@@ -3,12 +3,14 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import GroupIcon from '@mui/icons-material/Group';
 import CorporateFareIcon from '@mui/icons-material/CorporateFare';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function Layout({ children }) {
   const { logout, currentOrg, currentTeam, loading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isBoardPage = location.pathname.startsWith('/projects/');
 
   const handleLogout = () => {
     logout();
@@ -55,7 +57,7 @@ export default function Layout({ children }) {
           </Button>
         </Toolbar>
       </AppBar>
-      <Container maxWidth="lg" sx={{ mt: 3, flex: 1 }}>
+      <Container maxWidth={isBoardPage ? 'xl' : 'lg'} sx={{ mt: 3, flex: 1, display: 'flex', flexDirection: 'column' }}>
         {children}
       </Container>
     </Box>
