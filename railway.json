@@ -1,7 +1,8 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
-    "builder": "DOCKERFILE"
+    "builder": "DOCKERFILE",
+    "watchPatterns": ["client/**", "server/**", "package.json", "package-lock.json", "Dockerfile", "railway.json"]
   },
   "deploy": {
     "startCommand": "npm start",
