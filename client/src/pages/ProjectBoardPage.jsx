@@ -22,7 +22,7 @@ export default function ProjectBoardPage() {
   return (
     <>
       <Breadcrumbs sx={{ mb: 1 }}>
-        <Link underline="hover" color="inherit" sx={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
+        <Link underline="hover" color="inherit" sx={{ cursor: 'pointer' }} onClick={() => navigate('/clients')}>
           Clients
         </Link>
         {project && (

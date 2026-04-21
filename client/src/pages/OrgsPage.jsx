@@ -9,6 +9,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import AddIcon from '@mui/icons-material/Add';
 import { getPendingOrgInvites, acceptOrgInvite, declineOrgInvite, createOrg } from '../api/orgs';
 import { useAuth } from '../context/AuthContext';
+import MyTasksSection from '../components/MyTasksSection';
 
 export default function OrgsPage() {
   const { orgs, switchOrg, refreshOrgs, loading } = useAuth();
@@ -140,6 +141,10 @@ export default function OrgsPage() {
           ))}
         </Grid>
       )}
+
+      <Box sx={{ mt: 4 }}>
+        <MyTasksSection />
+      </Box>
     </>
   );
 }

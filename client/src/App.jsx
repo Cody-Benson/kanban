@@ -31,6 +31,14 @@ export default function App() {
               path="/"
               element={
                 <ProtectedRoute>
+                  <Layout><OrgsPage /></Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/clients"
+              element={
+                <ProtectedRoute>
                   <Layout><DashboardPage /></Layout>
                 </ProtectedRoute>
               }
@@ -51,14 +59,7 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
-            <Route
-              path="/orgs"
-              element={
-                <ProtectedRoute>
-                  <Layout><OrgsPage /></Layout>
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/orgs" element={<Navigate to="/" replace />} />
             <Route
               path="/org-settings"
               element={

@@ -122,6 +122,60 @@ router.post('/by-project/:projectId', async (req, res) => {
   }
 });
 
+// GET /api/tasks/mine — tasks across all teams/orgs the user belongs to
+// Query params:
+//   scope=mine|all (default 'mine' — only tasks assigned to the user)
+//   includeCompleted=true|false (default false)
+router.get('/mine', async (req, res) => {
+  try {
+    const scope = req.query.scope === 'all' ? 'all' : 'mine';
+    const includeCompleted = req.query.includeCompleted === 'true';
+
+    const params = [req.userId];
+    const where = [];
+
+    if (scope === 'mine') {
+      where.push(`t.assigned_to = $1`);
+    } else {
+      // 'all' — any task in a team the user is a member of
+      where.push(`tm.user_id = $1`);
+    }
+
+    if (!includeCompleted) {
+      where.push(`t.status != 'completed'`);
+    }
+
+    const sql = `
+      SELECT
+        t.*,
+        u.email AS assigned_email,
+        p.id AS project_id,
+        p.name AS project_name,
+        c.id AS client_id,
+        c.name AS client_name,
+        tm_team.id AS team_id,
+        tm_team.name AS team_name,
+        o.id AS org_id,
+        o.name AS org_name
+      FROM tasks t
+      JOIN projects p ON t.project_id = p.id
+      JOIN clients c ON p.client_id = c.id
+      JOIN teams tm_team ON c.team_id = tm_team.id
+      JOIN organizations o ON tm_team.org_id = o.id
+      JOIN team_members tm ON tm.team_id = tm_team.id AND tm.user_id = $1
+      LEFT JOIN users u ON t.assigned_to = u.id
+      WHERE ${where.join(' AND ')}
+      ORDER BY p.id, t.status, t.position
+    `;
+
+    const result = await pool.query(sql, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get my tasks error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // PUT /api/tasks/reorder — drag-and-drop reorder/status change
 // NOTE: Must be before /:id routes so "reorder" isn't matched as an id
 router.put('/reorder', async (req, res) => {

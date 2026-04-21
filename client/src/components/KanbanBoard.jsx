@@ -35,7 +35,6 @@ export default function KanbanBoard({ projectId, projectName }) {
   const [googleConnected, setGoogleConnected] = useState(false);
   const [teamMembers, setTeamMembers] = useState([]);
   const [assigneeFilter, setAssigneeFilter] = useState('all');
-  const [completedCollapsed, setCompletedCollapsed] = useState(true);
 
   const load = useCallback(async () => {
     try {
@@ -188,9 +187,6 @@ export default function KanbanBoard({ projectId, projectName }) {
               tasks={columns[status]}
               onEdit={(task) => setTaskDialog({ open: true, task })}
               onDelete={(task) => setDeleteDialog({ open: true, task })}
-              collapsible={status === 'completed'}
-              collapsed={status === 'completed' && completedCollapsed}
-              onToggleCollapse={status === 'completed' ? () => setCompletedCollapsed((v) => !v) : undefined}
             />
           ))}
         </Box>

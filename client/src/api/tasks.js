@@ -13,3 +13,6 @@ export const deleteTask = (id) => api.delete(`/tasks/${id}`).then((r) => r.data)
 
 export const reorderTask = (taskId, newStatus, newPosition) =>
   api.put('/tasks/reorder', { taskId, newStatus, newPosition }).then((r) => r.data);
+
+export const getMyTasks = ({ scope = 'mine', includeCompleted = false } = {}) =>
+  api.get('/tasks/mine', { params: { scope, includeCompleted } }).then((r) => r.data);

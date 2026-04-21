@@ -23,7 +23,7 @@ export default function TeamsPage() {
 
   const handleSelectTeam = (team) => {
     switchTeam(team.id);
-    navigate('/');
+    navigate('/clients');
   };
 
   const handleCreate = async (e) => {

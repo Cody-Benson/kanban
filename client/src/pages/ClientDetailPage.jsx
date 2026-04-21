@@ -73,7 +73,7 @@ export default function ClientDetailPage() {
   return (
     <>
       <Breadcrumbs sx={{ mb: 2 }}>
-        <Link underline="hover" color="inherit" sx={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
+        <Link underline="hover" color="inherit" sx={{ cursor: 'pointer' }} onClick={() => navigate('/clients')}>
           Clients
         </Link>
         <Typography color="text.primary">{client?.name}</Typography>

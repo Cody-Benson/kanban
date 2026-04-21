@@ -1,13 +1,10 @@
-import { AppBar, Toolbar, Typography, Button, Container, Box, IconButton, Chip } from '@mui/material';
-import SettingsIcon from '@mui/icons-material/Settings';
-import GroupIcon from '@mui/icons-material/Group';
-import CorporateFareIcon from '@mui/icons-material/CorporateFare';
+import { AppBar, Toolbar, Typography, Button, Container, Box, IconButton } from '@mui/material';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function Layout({ children }) {
-  const { logout, currentOrg, currentTeam, loading } = useAuth();
+  const { logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const isBoardPage = location.pathname.startsWith('/projects/');
@@ -24,30 +21,10 @@ export default function Layout({ children }) {
           <Typography
             variant="h6"
             sx={{ cursor: 'pointer', mr: 2 }}
-            onClick={() => navigate('/orgs')}
+            onClick={() => navigate('/')}
           >
             Kanban Board
           </Typography>
-          {!loading && currentOrg && (
-            <Chip
-              icon={<CorporateFareIcon />}
-              label={currentOrg.name}
-              sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.5)', mr: 1 }}
-              variant="outlined"
-              size="small"
-              onClick={() => navigate('/org-settings')}
-            />
-          )}
-          {!loading && currentTeam && (
-            <Chip
-              icon={<GroupIcon />}
-              label={currentTeam.name}
-              sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.5)', mr: 1 }}
-              variant="outlined"
-              size="small"
-              onClick={() => navigate('/team-settings')}
-            />
-          )}
           <Box sx={{ flexGrow: 1 }} />
           <IconButton color="inherit" onClick={() => navigate('/account-settings')} title="Account Settings">
             <AccountCircleIcon />
