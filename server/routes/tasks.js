@@ -57,7 +57,7 @@ router.post('/by-project/:projectId', async (req, res) => {
     if (!(await verifyProjectOwnership(req.params.projectId, req.userId))) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    const { title, description, due_date, assigned_to, add_to_google } = req.body;
+    const { title, description, due_date, assigned_to, add_to_google, google_due_date } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
     const wantsGoogleTask = add_to_google !== false;
 
@@ -94,14 +94,20 @@ router.post('/by-project/:projectId', async (req, res) => {
         const googleRoutes = require('./google');
         const tasksClient = await googleRoutes.getTasksClient(req.userId);
         if (tasksClient) {
-          let dueIso;
-          if (due_date) {
-            dueIso = new Date(`${due_date}T00:00:00Z`).toISOString();
-          } else {
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            dueIso = today.toISOString();
-          }
+          // Prefer the client-provided local date (YYYY-MM-DD in the user's tz)
+          // so the Google Task lands on the user's "today" regardless of the
+          // server's timezone. Fall back to server-local today only if absent.
+          const dateStr =
+            google_due_date ||
+            due_date ||
+            (() => {
+              const t = new Date();
+              const y = t.getFullYear();
+              const m = String(t.getMonth() + 1).padStart(2, '0');
+              const d = String(t.getDate()).padStart(2, '0');
+              return `${y}-${m}-${d}`;
+            })();
+          const dueIso = new Date(`${dateStr}T00:00:00Z`).toISOString();
           const googleTask = await tasksClient.tasks.insert({
             tasklist: '@default',
             requestBody: {
