@@ -113,9 +113,9 @@ export default function KanbanBoard({ projectId, projectName }) {
     }
   };
 
-  const handleCreateTask = async (title, description, dueDate, assignedTo) => {
+  const handleCreateTask = async (title, description, dueDate, assignedTo, addToGoogle) => {
     try {
-      await createTask(projectId, title, description, dueDate, assignedTo);
+      await createTask(projectId, title, description, dueDate, assignedTo, addToGoogle);
       setTaskDialog({ open: false, task: null });
       load();
     } catch {

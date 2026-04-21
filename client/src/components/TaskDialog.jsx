@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Button, Box, Chip, CircularProgress, Autocomplete,
+  FormControlLabel, Checkbox,
 } from '@mui/material';
 import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import LinkIcon from '@mui/icons-material/Link';
@@ -13,6 +14,7 @@ export default function TaskDialog({ open, task, onClose, onSave, googleConnecte
   const [dueDate, setDueDate] = useState('');
   const [assignedTo, setAssignedTo] = useState(null);
   const [addingToGoogle, setAddingToGoogle] = useState(false);
+  const [addToGoogle, setAddToGoogle] = useState(true);
 
   useEffect(() => {
     if (task) {
@@ -25,12 +27,13 @@ export default function TaskDialog({ open, task, onClose, onSave, googleConnecte
       setDescription('');
       setDueDate('');
       setAssignedTo(null);
+      setAddToGoogle(true);
     }
   }, [task, open]);
 
   const handleSave = () => {
     if (!title.trim()) return;
-    onSave(title.trim(), description.trim(), dueDate || null, assignedTo);
+    onSave(title.trim(), description.trim(), dueDate || null, assignedTo, addToGoogle);
   };
 
   const handleAddToGoogleTasks = async () => {
@@ -99,6 +102,18 @@ export default function TaskDialog({ open, task, onClose, onSave, googleConnecte
             renderInput={(params) => (
               <TextField {...params} label="Assign to" margin="dense" fullWidth />
             )}
+          />
+        )}
+        {!isExistingTask && (
+          <FormControlLabel
+            sx={{ mt: 1 }}
+            control={
+              <Checkbox
+                checked={addToGoogle}
+                onChange={(e) => setAddToGoogle(e.target.checked)}
+              />
+            }
+            label="Add to Google Tasks"
           />
         )}
         {isExistingTask && (

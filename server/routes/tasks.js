@@ -57,8 +57,9 @@ router.post('/by-project/:projectId', async (req, res) => {
     if (!(await verifyProjectOwnership(req.params.projectId, req.userId))) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    const { title, description, due_date, assigned_to } = req.body;
+    const { title, description, due_date, assigned_to, add_to_google } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
+    const wantsGoogleTask = add_to_google !== false;
 
     // Validate assigned_to is a team member if provided
     if (assigned_to) {
@@ -86,21 +87,28 @@ router.post('/by-project/:projectId', async (req, res) => {
     );
     const newTask = result.rows[0];
 
-    // Auto-create Google Task for today when no due date is assigned
-    if (!due_date) {
+    // Create Google Task when requested (default on). Uses the provided due date,
+    // or today when none was supplied.
+    if (wantsGoogleTask) {
       try {
         const googleRoutes = require('./google');
         const tasksClient = await googleRoutes.getTasksClient(req.userId);
         if (tasksClient) {
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
+          let dueIso;
+          if (due_date) {
+            dueIso = new Date(`${due_date}T00:00:00Z`).toISOString();
+          } else {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            dueIso = today.toISOString();
+          }
           const googleTask = await tasksClient.tasks.insert({
             tasklist: '@default',
             requestBody: {
               title: newTask.title,
               notes: newTask.description || '',
               status: 'needsAction',
-              due: today.toISOString(),
+              due: dueIso,
             },
           });
           const updateResult = await pool.query(
@@ -301,7 +309,34 @@ router.put('/:id', async (req, res) => {
       'UPDATE tasks SET title = $1, description = $2, due_date = $3, assigned_to = $4 WHERE id = $5 RETURNING *',
       [title, description || '', due_date || null, assigned_to || null, req.params.id]
     );
-    res.json(result.rows[0]);
+    const updatedTask = result.rows[0];
+
+    // Google Tasks sync: patch linked Google Task with new title/notes/due.
+    // Google Tasks API requires RFC3339 timestamps; clear `due` by sending null.
+    if (updatedTask.google_task_id) {
+      try {
+        const googleRoutes = require('./google');
+        const tasksClient = await googleRoutes.getTasksClient(req.userId);
+        if (tasksClient) {
+          const dueIso = due_date
+            ? new Date(`${due_date}T00:00:00Z`).toISOString()
+            : null;
+          await tasksClient.tasks.patch({
+            tasklist: '@default',
+            task: updatedTask.google_task_id,
+            requestBody: {
+              title: updatedTask.title,
+              notes: updatedTask.description || '',
+              due: dueIso,
+            },
+          });
+        }
+      } catch (googleErr) {
+        console.error('Google Tasks update sync error (non-fatal):', googleErr.message);
+      }
+    }
+
+    res.json(updatedTask);
   } catch (err) {
     console.error('Update task error:', err);
     res.status(500).json({ error: 'Server error' });
