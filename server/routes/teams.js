@@ -234,6 +234,38 @@ router.post('/:teamId/invite', async (req, res) => {
   }
 });
 
+// DELETE /api/teams/:teamId — delete team (creator only)
+router.delete('/:teamId', async (req, res) => {
+  try {
+    const creatorCheck = await pool.query(
+      'SELECT id FROM teams WHERE id = $1 AND created_by = $2',
+      [req.params.teamId, req.userId]
+    );
+    if (creatorCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Team not found or not authorized' });
+    }
+
+    const taskRows = await pool.query(
+      `SELECT t.google_task_id FROM tasks t
+       JOIN projects p ON t.project_id = p.id
+       JOIN clients c ON p.client_id = c.id
+       WHERE c.team_id = $1 AND t.google_task_id IS NOT NULL`,
+      [req.params.teamId]
+    );
+
+    await pool.query('DELETE FROM teams WHERE id = $1', [req.params.teamId]);
+
+    const { deleteGoogleTasksForUser } = require('./google');
+    deleteGoogleTasksForUser(req.userId, taskRows.rows.map((r) => r.google_task_id))
+      .catch((err) => console.error('Bulk Google Tasks delete error (non-fatal):', err.message));
+
+    res.json({ message: 'Team deleted' });
+  } catch (err) {
+    console.error('Delete team error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // DELETE /api/teams/:teamId/members/:userId — remove a member or leave team
 router.delete('/:teamId/members/:userId', async (req, res) => {
   try {

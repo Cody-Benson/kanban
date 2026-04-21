@@ -96,13 +96,29 @@ router.put('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    const result = await pool.query(
-      `DELETE FROM clients
-       WHERE id = $1 AND team_id IN (SELECT team_id FROM team_members WHERE user_id = $2)
-       RETURNING id`,
+    const ownershipCheck = await pool.query(
+      `SELECT c.id FROM clients c
+       JOIN team_members tm ON c.team_id = tm.team_id
+       WHERE c.id = $1 AND tm.user_id = $2`,
       [req.params.id, req.userId]
     );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Client not found' });
+    if (ownershipCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+
+    const taskRows = await pool.query(
+      `SELECT t.google_task_id FROM tasks t
+       JOIN projects p ON t.project_id = p.id
+       WHERE p.client_id = $1 AND t.google_task_id IS NOT NULL`,
+      [req.params.id]
+    );
+
+    await pool.query('DELETE FROM clients WHERE id = $1', [req.params.id]);
+
+    const { deleteGoogleTasksForUser } = require('./google');
+    deleteGoogleTasksForUser(req.userId, taskRows.rows.map((r) => r.google_task_id))
+      .catch((err) => console.error('Bulk Google Tasks delete error (non-fatal):', err.message));
+
     res.json({ message: 'Client deleted' });
   } catch (err) {
     console.error('Delete client error:', err);

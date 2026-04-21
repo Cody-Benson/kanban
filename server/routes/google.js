@@ -173,7 +173,27 @@ router.delete('/tasks/:taskId', auth, async (req, res) => {
   }
 });
 
-// Export helper for use in tasks.js reorder hook
+// Best-effort bulk delete of Google Tasks for a user.
+// Used when cascading deletes (org/client/project) remove many tasks at once.
+// Failures per-task are logged but don't throw.
+async function deleteGoogleTasksForUser(userId, googleTaskIds) {
+  const ids = (googleTaskIds || []).filter(Boolean);
+  if (ids.length === 0) return;
+  const tasksClient = await getTasksClient(userId);
+  if (!tasksClient) return;
+  await Promise.all(
+    ids.map((id) =>
+      tasksClient.tasks
+        .delete({ tasklist: '@default', task: id })
+        .catch((err) => {
+          console.error(`Google Tasks delete failed for ${id} (non-fatal):`, err.message);
+        })
+    )
+  );
+}
+
+// Export helpers for use in other routes
 router.getTasksClient = getTasksClient;
+router.deleteGoogleTasksForUser = deleteGoogleTasksForUser;
 
 module.exports = router;

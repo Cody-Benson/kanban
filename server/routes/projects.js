@@ -105,7 +105,18 @@ router.delete('/:id', async (req, res) => {
     if (!(await verifyProjectOwnership(req.params.id, req.userId))) {
       return res.status(404).json({ error: 'Project not found' });
     }
+
+    const taskRows = await pool.query(
+      'SELECT google_task_id FROM tasks WHERE project_id = $1 AND google_task_id IS NOT NULL',
+      [req.params.id]
+    );
+
     await pool.query('DELETE FROM projects WHERE id = $1', [req.params.id]);
+
+    const { deleteGoogleTasksForUser } = require('./google');
+    deleteGoogleTasksForUser(req.userId, taskRows.rows.map((r) => r.google_task_id))
+      .catch((err) => console.error('Bulk Google Tasks delete error (non-fatal):', err.message));
+
     res.json({ message: 'Project deleted' });
   } catch (err) {
     console.error('Delete project error:', err);

@@ -169,13 +169,29 @@ router.put('/:orgId', async (req, res) => {
 // DELETE /api/orgs/:orgId — delete org (creator only)
 router.delete('/:orgId', async (req, res) => {
   try {
-    const result = await pool.query(
-      'DELETE FROM organizations WHERE id = $1 AND created_by = $2 RETURNING id',
+    const creatorCheck = await pool.query(
+      'SELECT id FROM organizations WHERE id = $1 AND created_by = $2',
       [req.params.orgId, req.userId]
     );
-    if (result.rows.length === 0) {
+    if (creatorCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Organization not found or not authorized' });
     }
+
+    const taskRows = await pool.query(
+      `SELECT t.google_task_id FROM tasks t
+       JOIN projects p ON t.project_id = p.id
+       JOIN clients c ON p.client_id = c.id
+       JOIN teams tm ON c.team_id = tm.id
+       WHERE tm.org_id = $1 AND t.google_task_id IS NOT NULL`,
+      [req.params.orgId]
+    );
+
+    await pool.query('DELETE FROM organizations WHERE id = $1', [req.params.orgId]);
+
+    const { deleteGoogleTasksForUser } = require('./google');
+    deleteGoogleTasksForUser(req.userId, taskRows.rows.map((r) => r.google_task_id))
+      .catch((err) => console.error('Bulk Google Tasks delete error (non-fatal):', err.message));
+
     res.json({ message: 'Organization deleted' });
   } catch (err) {
     console.error('Delete org error:', err);

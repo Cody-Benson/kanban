@@ -9,3 +9,4 @@ export const getPendingInvites = () => api.get('/teams/invites/pending').then((r
 export const acceptInvite = (inviteId) => api.post(`/teams/invites/${inviteId}/accept`).then((r) => r.data);
 export const declineInvite = (inviteId) => api.post(`/teams/invites/${inviteId}/decline`).then((r) => r.data);
 export const removeMember = (teamId, userId) => api.delete(`/teams/${teamId}/members/${userId}`).then((r) => r.data);
+export const deleteTeam = (teamId) => api.delete(`/teams/${teamId}`).then((r) => r.data);
