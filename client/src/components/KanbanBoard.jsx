@@ -15,6 +15,8 @@ import {
   MenuItem,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import ArchiveIcon from '@mui/icons-material/Archive';
+import { useNavigate } from 'react-router-dom';
 import { DragDropContext } from '@hello-pangea/dnd';
 import KanbanColumn from './KanbanColumn';
 import TaskDialog from './TaskDialog';
@@ -27,6 +29,7 @@ const STATUSES = ['todo', 'in-progress', 'blocked', 'completed'];
 
 export default function KanbanBoard({ projectId, projectName }) {
   const { currentTeam } = useAuth();
+  const navigate = useNavigate();
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -169,6 +172,13 @@ export default function KanbanBoard({ projectId, projectName }) {
             ))}
           </Select>
         </FormControl>
+        <Button
+          variant="outlined"
+          startIcon={<ArchiveIcon />}
+          onClick={() => navigate(`/projects/${projectId}/archive`)}
+        >
+          Archive
+        </Button>
         <Button
           variant="contained"
           startIcon={<AddIcon />}

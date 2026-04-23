@@ -30,7 +30,11 @@ async function verifyTaskOwnership(taskId, userId) {
   return result.rows.length > 0;
 }
 
-// GET /api/tasks/by-project/:projectId
+// Tasks completed more than this long ago are considered "archived" and hidden
+// from the board. Kept as a SQL interval literal so it's easy to tweak.
+const ARCHIVE_AFTER = "INTERVAL '1 day'";
+
+// GET /api/tasks/by-project/:projectId — excludes archived (auto-hidden) completed tasks
 router.get('/by-project/:projectId', async (req, res) => {
   try {
     if (!(await verifyProjectOwnership(req.params.projectId, req.userId))) {
@@ -41,12 +45,58 @@ router.get('/by-project/:projectId', async (req, res) => {
        FROM tasks t
        LEFT JOIN users u ON t.assigned_to = u.id
        WHERE t.project_id = $1
+         AND (t.status != 'completed' OR t.completed_at IS NULL OR t.completed_at >= NOW() - ${ARCHIVE_AFTER})
        ORDER BY t.position`,
       [req.params.projectId]
     );
     res.json(result.rows);
   } catch (err) {
     console.error('Get tasks error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/tasks/archived/by-project/:projectId — tasks that auto-archived (completed > 1 day ago)
+router.get('/archived/by-project/:projectId', async (req, res) => {
+  try {
+    if (!(await verifyProjectOwnership(req.params.projectId, req.userId))) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    const result = await pool.query(
+      `SELECT t.*, u.email AS assigned_email
+       FROM tasks t
+       LEFT JOIN users u ON t.assigned_to = u.id
+       WHERE t.project_id = $1
+         AND t.status = 'completed'
+         AND t.completed_at IS NOT NULL
+         AND t.completed_at < NOW() - ${ARCHIVE_AFTER}
+       ORDER BY t.completed_at DESC`,
+      [req.params.projectId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get archived tasks error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/tasks/:id/restore — bring an archived task back to the Completed column
+// by resetting completed_at so the auto-archive no longer applies.
+router.post('/:id/restore', async (req, res) => {
+  try {
+    if (!(await verifyTaskOwnership(req.params.id, req.userId))) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    const result = await pool.query(
+      "UPDATE tasks SET completed_at = NOW() WHERE id = $1 AND status = 'completed' RETURNING *",
+      [req.params.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(400).json({ error: 'Task is not archived' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Restore task error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -157,6 +207,9 @@ router.get('/mine', async (req, res) => {
 
     if (!includeCompleted) {
       where.push(`t.status != 'completed'`);
+    } else {
+      // Hide auto-archived tasks even when completed are included
+      where.push(`(t.status != 'completed' OR t.completed_at IS NULL OR t.completed_at >= NOW() - ${ARCHIVE_AFTER})`);
     }
 
     const sql = `
@@ -217,9 +270,17 @@ router.put('/reorder', async (req, res) => {
 
     await client.query('BEGIN');
 
-    // Update the task's status
+    // Update the task's status. Also stamp/clear completed_at so the auto-archive
+    // (completed_at < now() - 1 day) picks up the most recent completion moment
+    // and resets the clock if the task is bounced back out of the completed column.
+    let completedAtClause = '';
+    if (newStatus === 'completed' && oldStatus !== 'completed') {
+      completedAtClause = ', completed_at = NOW()';
+    } else if (newStatus !== 'completed' && oldStatus === 'completed') {
+      completedAtClause = ', completed_at = NULL';
+    }
     await client.query(
-      'UPDATE tasks SET status = $1 WHERE id = $2',
+      `UPDATE tasks SET status = $1${completedAtClause} WHERE id = $2`,
       [newStatus, taskId]
     );
 
@@ -269,12 +330,13 @@ router.put('/reorder', async (req, res) => {
       }
     }
 
-    // Return all tasks for the project so the frontend can sync
+    // Return board-visible tasks so the frontend can sync (archived tasks are excluded)
     const allTasks = await client.query(
       `SELECT t.*, u.email AS assigned_email
        FROM tasks t
        LEFT JOIN users u ON t.assigned_to = u.id
        WHERE t.project_id = $1
+         AND (t.status != 'completed' OR t.completed_at IS NULL OR t.completed_at >= NOW() - ${ARCHIVE_AFTER})
        ORDER BY t.position`,
       [projectId]
     );

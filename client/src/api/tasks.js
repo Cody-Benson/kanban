@@ -31,3 +31,9 @@ export const reorderTask = (taskId, newStatus, newPosition) =>
 
 export const getMyTasks = ({ scope = 'mine', includeCompleted = false } = {}) =>
   api.get('/tasks/mine', { params: { scope, includeCompleted } }).then((r) => r.data);
+
+export const getArchivedTasks = (projectId) =>
+  api.get(`/tasks/archived/by-project/${projectId}`).then((r) => r.data);
+
+export const restoreTask = (id) =>
+  api.post(`/tasks/${id}/restore`).then((r) => r.data);

@@ -157,6 +157,24 @@ async function runMigrations() {
     END $$;
   `);
 
+  // Add completed_at to tasks (timestamp when task entered 'completed'; drives auto-archive after 1 day)
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'tasks' AND column_name = 'completed_at'
+      ) THEN
+        ALTER TABLE tasks ADD COLUMN completed_at TIMESTAMP;
+        -- Backfill existing completed tasks: treat them as just-completed so they
+        -- show up on the board for a day and don't all vanish on first deploy.
+        UPDATE tasks SET completed_at = NOW() WHERE status = 'completed';
+      END IF;
+    END $$;
+
+    CREATE INDEX IF NOT EXISTS idx_tasks_completed_at ON tasks(completed_at);
+  `);
+
   // Update tasks.status CHECK constraint to include 'blocked'
   await pool.query(`
     ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;

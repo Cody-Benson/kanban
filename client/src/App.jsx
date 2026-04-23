@@ -8,6 +8,7 @@ import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import ClientDetailPage from './pages/ClientDetailPage';
 import ProjectBoardPage from './pages/ProjectBoardPage';
+import ArchivedTasksPage from './pages/ArchivedTasksPage';
 import TeamSettingsPage from './pages/TeamSettingsPage';
 import TeamsPage from './pages/TeamsPage';
 import OrgsPage from './pages/OrgsPage';
@@ -56,6 +57,14 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <Layout><ProjectBoardPage /></Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/projects/:projectId/archive"
+              element={
+                <ProtectedRoute>
+                  <Layout><ArchivedTasksPage /></Layout>
                 </ProtectedRoute>
               }
             />
