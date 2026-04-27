@@ -125,6 +125,32 @@ router.post('/by-project/:projectId', async (req, res) => {
       }
     }
 
+    // If we're going to create a Google Task with a default "today" date,
+    // store that same date in our DB so the two stay in sync. Without this,
+    // a later edit syncs DB(null) → Google, clearing the Google due date and
+    // dropping the task off the user's calendar.
+    let tasksClient = null;
+    let effectiveDueDate = due_date || null;
+    if (wantsGoogleTask) {
+      const googleRoutes = require('./google');
+      try {
+        tasksClient = await googleRoutes.getTasksClient(req.userId);
+      } catch (googleErr) {
+        console.error('Google Tasks client error (non-fatal):', googleErr.message);
+      }
+      if (tasksClient && !effectiveDueDate) {
+        effectiveDueDate =
+          google_due_date ||
+          (() => {
+            const t = new Date();
+            const y = t.getFullYear();
+            const m = String(t.getMonth() + 1).padStart(2, '0');
+            const d = String(t.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+          })();
+      }
+    }
+
     // Get the next position for 'todo' column
     const posResult = await pool.query(
       "SELECT COALESCE(MAX(position), -1) + 1 AS next_pos FROM tasks WHERE project_id = $1 AND status = 'todo'",
@@ -133,47 +159,28 @@ router.post('/by-project/:projectId', async (req, res) => {
 
     const result = await pool.query(
       'INSERT INTO tasks (project_id, title, description, status, position, due_date, assigned_to) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
-      [req.params.projectId, title, description || '', 'todo', posResult.rows[0].next_pos, due_date || null, assigned_to || null]
+      [req.params.projectId, title, description || '', 'todo', posResult.rows[0].next_pos, effectiveDueDate, assigned_to || null]
     );
     const newTask = result.rows[0];
 
-    // Create Google Task when requested (default on). Uses the provided due date,
-    // or today when none was supplied.
-    if (wantsGoogleTask) {
+    if (wantsGoogleTask && tasksClient) {
       try {
-        const googleRoutes = require('./google');
-        const tasksClient = await googleRoutes.getTasksClient(req.userId);
-        if (tasksClient) {
-          // Prefer the client-provided local date (YYYY-MM-DD in the user's tz)
-          // so the Google Task lands on the user's "today" regardless of the
-          // server's timezone. Fall back to server-local today only if absent.
-          const dateStr =
-            google_due_date ||
-            due_date ||
-            (() => {
-              const t = new Date();
-              const y = t.getFullYear();
-              const m = String(t.getMonth() + 1).padStart(2, '0');
-              const d = String(t.getDate()).padStart(2, '0');
-              return `${y}-${m}-${d}`;
-            })();
-          const dueIso = new Date(`${dateStr}T00:00:00Z`).toISOString();
-          const googleTask = await tasksClient.tasks.insert({
-            tasklist: '@default',
-            requestBody: {
-              title: newTask.title,
-              notes: newTask.description || '',
-              status: 'needsAction',
-              due: dueIso,
-            },
-          });
-          const updateResult = await pool.query(
-            'UPDATE tasks SET google_task_id = $1 WHERE id = $2 RETURNING *',
-            [googleTask.data.id, newTask.id]
-          );
-          res.status(201).json(updateResult.rows[0]);
-          return;
-        }
+        const dueIso = new Date(`${effectiveDueDate}T00:00:00Z`).toISOString();
+        const googleTask = await tasksClient.tasks.insert({
+          tasklist: '@default',
+          requestBody: {
+            title: newTask.title,
+            notes: newTask.description || '',
+            status: 'needsAction',
+            due: dueIso,
+          },
+        });
+        const updateResult = await pool.query(
+          'UPDATE tasks SET google_task_id = $1 WHERE id = $2 RETURNING *',
+          [googleTask.data.id, newTask.id]
+        );
+        res.status(201).json(updateResult.rows[0]);
+        return;
       } catch (googleErr) {
         console.error('Auto Google Task creation error (non-fatal):', googleErr.message);
       }
@@ -373,30 +380,44 @@ router.put('/:id', async (req, res) => {
     const { title, description, due_date, assigned_to } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
 
+    // Capture the previous due_date so we can decide whether the user actually
+    // changed it. Without this, a title-only edit would patch Google with
+    // due=null and drop the task off the user's calendar.
+    const prev = await pool.query('SELECT due_date FROM tasks WHERE id = $1', [req.params.id]);
+    const prevDueDate = prev.rows[0]?.due_date
+      ? new Date(prev.rows[0].due_date).toISOString().slice(0, 10)
+      : null;
+    const newDueDate = due_date || null;
+
     const result = await pool.query(
       'UPDATE tasks SET title = $1, description = $2, due_date = $3, assigned_to = $4 WHERE id = $5 RETURNING *',
-      [title, description || '', due_date || null, assigned_to || null, req.params.id]
+      [title, description || '', newDueDate, assigned_to || null, req.params.id]
     );
     const updatedTask = result.rows[0];
 
     // Google Tasks sync: patch linked Google Task with new title/notes/due.
-    // Google Tasks API requires RFC3339 timestamps; clear `due` by sending null.
+    // Only touch the `due` field when the date actually changed — sending
+    // due=null on every edit would clear the calendar entry for tasks whose
+    // DB row has no date but whose Google Task does (created via the default
+    // "today" path).
     if (updatedTask.google_task_id) {
       try {
         const googleRoutes = require('./google');
         const tasksClient = await googleRoutes.getTasksClient(req.userId);
         if (tasksClient) {
-          const dueIso = due_date
-            ? new Date(`${due_date}T00:00:00Z`).toISOString()
-            : null;
+          const requestBody = {
+            title: updatedTask.title,
+            notes: updatedTask.description || '',
+          };
+          if (newDueDate !== prevDueDate) {
+            requestBody.due = newDueDate
+              ? new Date(`${newDueDate}T00:00:00Z`).toISOString()
+              : null;
+          }
           await tasksClient.tasks.patch({
             tasklist: '@default',
             task: updatedTask.google_task_id,
-            requestBody: {
-              title: updatedTask.title,
-              notes: updatedTask.description || '',
-              due: dueIso,
-            },
+            requestBody,
           });
         }
       } catch (googleErr) {
