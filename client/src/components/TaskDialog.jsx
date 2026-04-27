@@ -8,7 +8,7 @@ import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import LinkIcon from '@mui/icons-material/Link';
 import { getGoogleAuthUrl, createGoogleTask } from '../api/google';
 
-export default function TaskDialog({ open, task, onClose, onSave, googleConnected, onTaskLinked, teamMembers = [] }) {
+export default function TaskDialog({ open, task, onClose, onSave, googleConnected, onTaskLinked, teamMembers = [], defaultAssignedTo = null }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [dueDate, setDueDate] = useState('');
@@ -26,10 +26,10 @@ export default function TaskDialog({ open, task, onClose, onSave, googleConnecte
       setTitle('');
       setDescription('');
       setDueDate('');
-      setAssignedTo(null);
+      setAssignedTo(defaultAssignedTo);
       setAddToGoogle(true);
     }
-  }, [task, open]);
+  }, [task, open, defaultAssignedTo]);
 
   const handleSave = () => {
     if (!title.trim()) return;

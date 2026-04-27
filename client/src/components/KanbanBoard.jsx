@@ -63,6 +63,14 @@ export default function KanbanBoard({ projectId, projectName }) {
     }
   }, [currentTeam?.id]);
 
+  const defaultAssignedTo = useMemo(() => {
+    const assigned = tasks.filter((t) => t.assigned_to);
+    if (assigned.length === 0) return null;
+    return assigned.reduce((latest, t) =>
+      new Date(t.created_at) > new Date(latest.created_at) ? t : latest
+    ).assigned_to;
+  }, [tasks]);
+
   // Filter + group tasks by status
   const columns = useMemo(() => {
     const filtered = tasks.filter((t) => {
@@ -210,6 +218,7 @@ export default function KanbanBoard({ projectId, projectName }) {
         googleConnected={googleConnected}
         onTaskLinked={load}
         teamMembers={teamMembers}
+        defaultAssignedTo={defaultAssignedTo}
       />
 
       <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({ open: false, task: null })}>
