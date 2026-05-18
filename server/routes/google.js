@@ -143,6 +143,86 @@ router.delete('/accounts/:id', auth, async (req, res) => {
   }
 });
 
+// POST /api/google/accounts/:id/sync-all — push every task the user can
+// access into this Google account that isn't already linked to it. Lets a
+// newly connected account backfill all previously created tasks.
+router.post('/accounts/:id/sync-all', auth, async (req, res) => {
+  try {
+    const accountResult = await pool.query(
+      'SELECT id, google_email, refresh_token, has_tasks_scope FROM google_accounts WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.userId]
+    );
+    if (accountResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Account not found' });
+    }
+    const account = accountResult.rows[0];
+    if (account.has_tasks_scope === false) {
+      return res.status(400).json({
+        error:
+          'This account is missing Google Tasks permission. Reconnect it and check the Tasks box on the Google consent screen.',
+      });
+    }
+
+    // All tasks the user can reach (via team membership) that don't yet have
+    // a link to this account — skipping linked ones prevents duplicates on
+    // repeat syncs.
+    const tasksResult = await pool.query(
+      `SELECT t.id, t.title, t.description, t.status, t.due_date
+       FROM tasks t
+       JOIN projects p ON t.project_id = p.id
+       JOIN clients c ON p.client_id = c.id
+       JOIN team_members tm ON c.team_id = tm.team_id
+       WHERE tm.user_id = $1
+         AND NOT EXISTS (
+           SELECT 1 FROM task_google_links tgl
+           WHERE tgl.task_id = t.id AND tgl.google_account_id = $2
+         )
+       ORDER BY t.id`,
+      [req.userId, account.id]
+    );
+
+    const tasksClient = getTasksClientForToken(account.refresh_token);
+    let synced = 0;
+    let failed = 0;
+
+    for (const task of tasksResult.rows) {
+      const googleTask = {
+        title: task.title,
+        notes: task.description || undefined,
+        status: task.status === 'completed' ? 'completed' : 'needsAction',
+      };
+      if (task.due_date) {
+        googleTask.due = new Date(task.due_date).toISOString();
+      }
+      try {
+        const response = await tasksClient.tasks.insert({
+          tasklist: '@default',
+          requestBody: googleTask,
+        });
+        await pool.query(
+          `INSERT INTO task_google_links (task_id, google_account_id, google_task_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (task_id, google_account_id)
+           DO UPDATE SET google_task_id = EXCLUDED.google_task_id`,
+          [task.id, account.id, response.data.id]
+        );
+        synced += 1;
+      } catch (taskErr) {
+        failed += 1;
+        console.error(
+          `Sync-all: task ${task.id} -> account ${account.id} failed (non-fatal):`,
+          taskErr.message
+        );
+      }
+    }
+
+    res.json({ synced, failed });
+  } catch (err) {
+    console.error('Sync-all error:', err);
+    res.status(500).json({ error: 'Failed to sync tasks' });
+  }
+});
+
 // Build an authenticated Tasks API client from a stored refresh token.
 function getTasksClientForToken(refreshToken) {
   const oauth2Client = getOAuth2Client();

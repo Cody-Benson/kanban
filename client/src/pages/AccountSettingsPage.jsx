@@ -2,12 +2,14 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Typography, TextField, Button, Box, Paper, Alert, Breadcrumbs, Link,
-  List, ListItem, ListItemText, IconButton,
+  List, ListItem, ListItemText, IconButton, CircularProgress,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useAuth } from '../context/AuthContext';
 import { changePassword } from '../api/auth';
-import { getGoogleAccounts, disconnectGoogleAccount, getGoogleAuthUrl } from '../api/google';
+import {
+  getGoogleAccounts, disconnectGoogleAccount, getGoogleAuthUrl, syncAllTasks,
+} from '../api/google';
 
 export default function AccountSettingsPage() {
   const { user } = useAuth();
@@ -18,6 +20,8 @@ export default function AccountSettingsPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [googleAccounts, setGoogleAccounts] = useState([]);
+  const [syncingId, setSyncingId] = useState(null);
+  const [syncResult, setSyncResult] = useState({});
 
   const loadGoogleAccounts = () => {
     getGoogleAccounts()
@@ -44,6 +48,25 @@ export default function AccountSettingsPage() {
       loadGoogleAccounts();
     } catch {
       setError('Failed to disconnect Google account');
+    }
+  };
+
+  const handleSyncAll = async (id) => {
+    setSyncingId(id);
+    setSyncResult((prev) => ({ ...prev, [id]: null }));
+    try {
+      const { synced, failed } = await syncAllTasks(id);
+      let msg = `Synced ${synced} task${synced === 1 ? '' : 's'}.`;
+      if (failed > 0) msg += ` ${failed} failed.`;
+      if (synced === 0 && failed === 0) msg = 'All tasks were already synced.';
+      setSyncResult((prev) => ({ ...prev, [id]: { ok: failed === 0, msg } }));
+    } catch (err) {
+      setSyncResult((prev) => ({
+        ...prev,
+        [id]: { ok: false, msg: err.response?.data?.error || 'Failed to sync tasks' },
+      }));
+    } finally {
+      setSyncingId(null);
     }
   };
 
@@ -88,7 +111,9 @@ export default function AccountSettingsPage() {
         <Typography variant="subtitle1" gutterBottom>Connected Google Accounts</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
           New tasks are added to Google Tasks for every connected account
-          (these show up under "Tasks" in Google Calendar).
+          (these show up under "Tasks" in Google Calendar). Use "Sync all
+          tasks" to backfill every existing task into a newly connected
+          account.
         </Typography>
         {googleAccounts.length === 0 ? (
           <Typography color="text.secondary" sx={{ mb: 2 }}>
@@ -96,26 +121,50 @@ export default function AccountSettingsPage() {
           </Typography>
         ) : (
           <List dense>
-            {googleAccounts.map((a) => (
-              <ListItem
-                key={a.id}
-                secondaryAction={
-                  <IconButton edge="end" aria-label="disconnect" onClick={() => handleDisconnectGoogle(a.id)}>
-                    <DeleteIcon />
-                  </IconButton>
-                }
-              >
-                <ListItemText
-                  primary={a.email}
-                  secondary={
-                    a.hasTasksScope === false
-                      ? 'Missing Google Tasks permission — reconnect this account and check the Tasks box on the Google consent screen.'
-                      : null
+            {googleAccounts.map((a) => {
+              const result = syncResult[a.id];
+              return (
+                <ListItem
+                  key={a.id}
+                  alignItems="flex-start"
+                  secondaryAction={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        disabled={syncingId === a.id || a.hasTasksScope === false}
+                        onClick={() => handleSyncAll(a.id)}
+                        startIcon={
+                          syncingId === a.id ? <CircularProgress size={14} /> : null
+                        }
+                      >
+                        {syncingId === a.id ? 'Syncing…' : 'Sync all tasks'}
+                      </Button>
+                      <IconButton edge="end" aria-label="disconnect" onClick={() => handleDisconnectGoogle(a.id)}>
+                        <DeleteIcon />
+                      </IconButton>
+                    </Box>
                   }
-                  secondaryTypographyProps={{ color: 'warning.main' }}
-                />
-              </ListItem>
-            ))}
+                >
+                  <ListItemText
+                    primary={a.email}
+                    secondary={
+                      a.hasTasksScope === false
+                        ? 'Missing Google Tasks permission — reconnect this account and check the Tasks box on the Google consent screen.'
+                        : result
+                        ? result.msg
+                        : null
+                    }
+                    secondaryTypographyProps={{
+                      color:
+                        a.hasTasksScope === false || (result && !result.ok)
+                          ? 'warning.main'
+                          : 'success.main',
+                    }}
+                  />
+                </ListItem>
+              );
+            })}
           </List>
         )}
         <Button variant="outlined" sx={{ mt: 1 }} onClick={handleConnectGoogle}>
