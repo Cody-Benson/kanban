@@ -245,7 +245,6 @@ export default function MyTasksSection() {
         task={taskDialog.task}
         onClose={() => setTaskDialog({ open: false, task: null, teamMembers: [] })}
         onSave={handleSaveTask}
-        googleConnected={false}
         teamMembers={taskDialog.teamMembers}
       />
     </Box>

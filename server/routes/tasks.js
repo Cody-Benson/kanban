@@ -107,7 +107,7 @@ router.post('/by-project/:projectId', async (req, res) => {
     if (!(await verifyProjectOwnership(req.params.projectId, req.userId))) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    const { title, description, due_date, assigned_to, add_to_google, google_due_date } = req.body;
+    const { title, description, due_date, assigned_to, add_to_google, google_account_ids, google_due_date } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
     const wantsGoogleTask = add_to_google !== false;
 
@@ -129,16 +129,20 @@ router.post('/by-project/:projectId', async (req, res) => {
     // store that same date in our DB so the two stay in sync. Without this,
     // a later edit syncs DB(null) → Google, clearing the Google due date and
     // dropping the task off the user's calendar.
-    let tasksClient = null;
+    let googleTargets = [];
     let effectiveDueDate = due_date || null;
     if (wantsGoogleTask) {
       const googleRoutes = require('./google');
       try {
-        tasksClient = await googleRoutes.getTasksClient(req.userId);
+        const accounts = await googleRoutes.listGoogleAccounts(req.userId);
+        googleTargets =
+          Array.isArray(google_account_ids) && google_account_ids.length > 0
+            ? accounts.filter((a) => google_account_ids.includes(a.id))
+            : accounts;
       } catch (googleErr) {
-        console.error('Google Tasks client error (non-fatal):', googleErr.message);
+        console.error('Google accounts lookup error (non-fatal):', googleErr.message);
       }
-      if (tasksClient && !effectiveDueDate) {
+      if (googleTargets.length > 0 && !effectiveDueDate) {
         effectiveDueDate =
           google_due_date ||
           (() => {
@@ -163,26 +167,31 @@ router.post('/by-project/:projectId', async (req, res) => {
     );
     const newTask = result.rows[0];
 
-    if (wantsGoogleTask && tasksClient) {
-      try {
-        const dueIso = new Date(`${effectiveDueDate}T00:00:00Z`).toISOString();
-        const googleTask = await tasksClient.tasks.insert({
-          tasklist: '@default',
-          requestBody: {
-            title: newTask.title,
-            notes: newTask.description || '',
-            status: 'needsAction',
-            due: dueIso,
-          },
-        });
-        const updateResult = await pool.query(
-          'UPDATE tasks SET google_task_id = $1 WHERE id = $2 RETURNING *',
-          [googleTask.data.id, newTask.id]
-        );
-        res.status(201).json(updateResult.rows[0]);
-        return;
-      } catch (googleErr) {
-        console.error('Auto Google Task creation error (non-fatal):', googleErr.message);
+    if (wantsGoogleTask && googleTargets.length > 0) {
+      const googleRoutes = require('./google');
+      const dueIso = new Date(`${effectiveDueDate}T00:00:00Z`).toISOString();
+      for (const acc of googleTargets) {
+        try {
+          const tasksClient = googleRoutes.getTasksClientForToken(acc.refresh_token);
+          const googleTask = await tasksClient.tasks.insert({
+            tasklist: '@default',
+            requestBody: {
+              title: newTask.title,
+              notes: newTask.description || '',
+              status: 'needsAction',
+              due: dueIso,
+            },
+          });
+          await pool.query(
+            `INSERT INTO task_google_links (task_id, google_account_id, google_task_id)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (task_id, google_account_id)
+             DO UPDATE SET google_task_id = EXCLUDED.google_task_id`,
+            [newTask.id, acc.id, googleTask.data.id]
+          );
+        } catch (googleErr) {
+          console.error(`Auto Google Task creation for account ${acc.id} (non-fatal):`, googleErr.message);
+        }
       }
     }
 
@@ -319,19 +328,26 @@ router.put('/reorder', async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Google Tasks sync: update linked Google Task status on column change
-    if (oldStatus !== newStatus && task.google_task_id) {
+    // Google Tasks sync: update every linked Google Task's status on column change
+    if (oldStatus !== newStatus) {
       try {
         const googleRoutes = require('./google');
-        const tasksClient = await googleRoutes.getTasksClient(req.userId);
-        if (tasksClient) {
-          const googleStatus = newStatus === 'completed' ? 'completed' : 'needsAction';
-          await tasksClient.tasks.patch({
-            tasklist: '@default',
-            task: task.google_task_id,
-            requestBody: { status: googleStatus },
-          });
-        }
+        const links = await googleRoutes.getTaskLinks(taskId);
+        const googleStatus = newStatus === 'completed' ? 'completed' : 'needsAction';
+        await Promise.all(
+          links.map((l) =>
+            googleRoutes
+              .getTasksClientForToken(l.refresh_token)
+              .tasks.patch({
+                tasklist: '@default',
+                task: l.google_task_id,
+                requestBody: { status: googleStatus },
+              })
+              .catch((err) =>
+                console.error(`Google Tasks status sync failed for ${l.google_task_id} (non-fatal):`, err.message)
+              )
+          )
+        );
       } catch (googleErr) {
         console.error('Google Tasks sync error (non-fatal):', googleErr.message);
       }
@@ -400,29 +416,36 @@ router.put('/:id', async (req, res) => {
     // due=null on every edit would clear the calendar entry for tasks whose
     // DB row has no date but whose Google Task does (created via the default
     // "today" path).
-    if (updatedTask.google_task_id) {
-      try {
-        const googleRoutes = require('./google');
-        const tasksClient = await googleRoutes.getTasksClient(req.userId);
-        if (tasksClient) {
-          const requestBody = {
-            title: updatedTask.title,
-            notes: updatedTask.description || '',
-          };
-          if (newDueDate !== prevDueDate) {
-            requestBody.due = newDueDate
-              ? new Date(`${newDueDate}T00:00:00Z`).toISOString()
-              : null;
-          }
-          await tasksClient.tasks.patch({
-            tasklist: '@default',
-            task: updatedTask.google_task_id,
-            requestBody,
-          });
+    try {
+      const googleRoutes = require('./google');
+      const links = await googleRoutes.getTaskLinks(req.params.id);
+      if (links.length > 0) {
+        const requestBody = {
+          title: updatedTask.title,
+          notes: updatedTask.description || '',
+        };
+        if (newDueDate !== prevDueDate) {
+          requestBody.due = newDueDate
+            ? new Date(`${newDueDate}T00:00:00Z`).toISOString()
+            : null;
         }
-      } catch (googleErr) {
-        console.error('Google Tasks update sync error (non-fatal):', googleErr.message);
+        await Promise.all(
+          links.map((l) =>
+            googleRoutes
+              .getTasksClientForToken(l.refresh_token)
+              .tasks.patch({
+                tasklist: '@default',
+                task: l.google_task_id,
+                requestBody,
+              })
+              .catch((err) =>
+                console.error(`Google Tasks update sync failed for ${l.google_task_id} (non-fatal):`, err.message)
+              )
+          )
+        );
       }
+    } catch (googleErr) {
+      console.error('Google Tasks update sync error (non-fatal):', googleErr.message);
     }
 
     res.json(updatedTask);
@@ -439,27 +462,29 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
-    // Fetch the linked Google Task id before deleting the row
-    const taskResult = await pool.query('SELECT google_task_id FROM tasks WHERE id = $1', [req.params.id]);
-    const googleTaskId = taskResult.rows[0]?.google_task_id;
+    // Fetch all Google links before deleting the row (the row delete cascades
+    // task_google_links away).
+    const googleRoutes = require('./google');
+    let links = [];
+    try {
+      links = await googleRoutes.getTaskLinks(req.params.id);
+    } catch (linkErr) {
+      console.error('Google Tasks link lookup error (non-fatal):', linkErr.message);
+    }
 
     await pool.query('DELETE FROM tasks WHERE id = $1', [req.params.id]);
 
-    // Google Tasks sync: delete the linked Google Task (non-fatal)
-    if (googleTaskId) {
-      try {
-        const googleRoutes = require('./google');
-        const tasksClient = await googleRoutes.getTasksClient(req.userId);
-        if (tasksClient) {
-          await tasksClient.tasks.delete({
-            tasklist: '@default',
-            task: googleTaskId,
-          });
-        }
-      } catch (googleErr) {
-        console.error('Google Tasks delete sync error (non-fatal):', googleErr.message);
-      }
-    }
+    // Google Tasks sync: delete the linked Google Task in every account (non-fatal)
+    await Promise.all(
+      links.map((l) =>
+        googleRoutes
+          .getTasksClientForToken(l.refresh_token)
+          .tasks.delete({ tasklist: '@default', task: l.google_task_id })
+          .catch((err) =>
+            console.error(`Google Tasks delete sync failed for ${l.google_task_id} (non-fatal):`, err.message)
+          )
+      )
+    );
 
     res.json({ message: 'Task deleted' });
   } catch (err) {

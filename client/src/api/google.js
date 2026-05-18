@@ -6,5 +6,11 @@ export const getGoogleAuthUrl = () =>
 export const getGoogleStatus = () =>
   api.get('/google/status').then((r) => r.data);
 
-export const createGoogleTask = (taskId) =>
-  api.post('/google/tasks', { taskId }).then((r) => r.data);
+export const getGoogleAccounts = () =>
+  api.get('/google/accounts').then((r) => r.data);
+
+export const disconnectGoogleAccount = (id) =>
+  api.delete(`/google/accounts/${id}`).then((r) => r.data);
+
+export const createGoogleTask = (taskId, googleAccountIds) =>
+  api.post('/google/tasks', { taskId, googleAccountIds }).then((r) => r.data);

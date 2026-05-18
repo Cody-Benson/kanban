@@ -11,13 +11,22 @@ function todayLocalISODate() {
   return `${y}-${m}-${day}`;
 }
 
-export const createTask = (projectId, title, description, due_date, assigned_to, add_to_google = true) =>
+export const createTask = (
+  projectId,
+  title,
+  description,
+  due_date,
+  assigned_to,
+  add_to_google = true,
+  google_account_ids = null
+) =>
   api.post(`/tasks/by-project/${projectId}`, {
     title,
     description,
     due_date: due_date || null,
     assigned_to: assigned_to || null,
     add_to_google,
+    google_account_ids,
     google_due_date: due_date || todayLocalISODate(),
   }).then((r) => r.data);
 

@@ -1,8 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Typography, TextField, Button, Box, Paper, Alert, Breadcrumbs, Link } from '@mui/material';
+import {
+  Typography, TextField, Button, Box, Paper, Alert, Breadcrumbs, Link,
+  List, ListItem, ListItemText, IconButton,
+} from '@mui/material';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { useAuth } from '../context/AuthContext';
 import { changePassword } from '../api/auth';
+import { getGoogleAccounts, disconnectGoogleAccount, getGoogleAuthUrl } from '../api/google';
 
 export default function AccountSettingsPage() {
   const { user } = useAuth();
@@ -12,6 +17,35 @@ export default function AccountSettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [googleAccounts, setGoogleAccounts] = useState([]);
+
+  const loadGoogleAccounts = () => {
+    getGoogleAccounts()
+      .then(setGoogleAccounts)
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    loadGoogleAccounts();
+  }, []);
+
+  const handleConnectGoogle = async () => {
+    try {
+      const { url } = await getGoogleAuthUrl();
+      window.location.href = url;
+    } catch {
+      setError('Failed to start Google connection');
+    }
+  };
+
+  const handleDisconnectGoogle = async (id) => {
+    try {
+      await disconnectGoogleAccount(id);
+      loadGoogleAccounts();
+    } catch {
+      setError('Failed to disconnect Google account');
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -48,6 +82,45 @@ export default function AccountSettingsPage() {
       <Paper sx={{ p: 3, mb: 3 }}>
         <Typography variant="subtitle1" gutterBottom>Email</Typography>
         <Typography color="text.secondary">{user?.email}</Typography>
+      </Paper>
+
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Typography variant="subtitle1" gutterBottom>Connected Google Accounts</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          New tasks are added to Google Tasks for every connected account
+          (these show up under "Tasks" in Google Calendar).
+        </Typography>
+        {googleAccounts.length === 0 ? (
+          <Typography color="text.secondary" sx={{ mb: 2 }}>
+            No Google accounts connected.
+          </Typography>
+        ) : (
+          <List dense>
+            {googleAccounts.map((a) => (
+              <ListItem
+                key={a.id}
+                secondaryAction={
+                  <IconButton edge="end" aria-label="disconnect" onClick={() => handleDisconnectGoogle(a.id)}>
+                    <DeleteIcon />
+                  </IconButton>
+                }
+              >
+                <ListItemText
+                  primary={a.email}
+                  secondary={
+                    a.hasTasksScope === false
+                      ? 'Missing Google Tasks permission — reconnect this account and check the Tasks box on the Google consent screen.'
+                      : null
+                  }
+                  secondaryTypographyProps={{ color: 'warning.main' }}
+                />
+              </ListItem>
+            ))}
+          </List>
+        )}
+        <Button variant="outlined" sx={{ mt: 1 }} onClick={handleConnectGoogle}>
+          Connect another Google account
+        </Button>
       </Paper>
 
       <Paper sx={{ p: 3 }}>
