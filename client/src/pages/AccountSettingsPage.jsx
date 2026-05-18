@@ -55,10 +55,13 @@ export default function AccountSettingsPage() {
     setSyncingId(id);
     setSyncResult((prev) => ({ ...prev, [id]: null }));
     try {
-      const { synced, failed } = await syncAllTasks(id);
+      const { synced, failed, skipped = 0 } = await syncAllTasks(id);
       let msg = `Synced ${synced} task${synced === 1 ? '' : 's'}.`;
+      if (skipped > 0) msg += ` ${skipped} already in this account.`;
       if (failed > 0) msg += ` ${failed} failed.`;
-      if (synced === 0 && failed === 0) msg = 'All tasks were already synced.';
+      if (synced === 0 && failed === 0 && skipped === 0) {
+        msg = 'All tasks were already synced.';
+      }
       setSyncResult((prev) => ({ ...prev, [id]: { ok: failed === 0, msg } }));
     } catch (err) {
       setSyncResult((prev) => ({

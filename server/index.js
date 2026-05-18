@@ -330,6 +330,20 @@ async function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
   `);
 
+  // Collapse legacy-<id>@unknown placeholder accounts onto the real Google
+  // account once their true email can be resolved, so one physical account
+  // maps to exactly one row (prevents duplicate task fan-out).
+  try {
+    const legacyUsers = await pool.query(
+      "SELECT DISTINCT user_id FROM google_accounts WHERE google_email LIKE 'legacy-%@unknown'"
+    );
+    for (const row of legacyUsers.rows) {
+      await googleRoutes.reconcileLegacyAccounts(row.user_id);
+    }
+  } catch (err) {
+    console.error('Legacy account reconciliation failed (non-fatal):', err.message);
+  }
+
   console.log('Database migrations completed.');
 }
 

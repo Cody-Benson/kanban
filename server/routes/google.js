@@ -78,6 +78,14 @@ router.get('/callback', async (req, res) => {
       );
     }
 
+    // If this account was previously stored as a legacy placeholder, collapse
+    // the placeholder onto this real row so tasks aren't double-posted.
+    try {
+      await reconcileLegacyAccounts(decoded.userId);
+    } catch (reconcileErr) {
+      console.error('Legacy reconcile after connect failed (non-fatal):', reconcileErr.message);
+    }
+
     // Redirect back to frontend
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     res.redirect(`${frontendUrl}?google=connected`);
@@ -148,12 +156,31 @@ router.delete('/accounts/:id', auth, async (req, res) => {
 // newly connected account backfill all previously created tasks.
 router.post('/accounts/:id/sync-all', auth, async (req, res) => {
   try {
+    // Verify ownership before doing anything.
+    const ownsAccount = await pool.query(
+      'SELECT id FROM google_accounts WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.userId]
+    );
+    if (ownsAccount.rows.length === 0) {
+      return res.status(404).json({ error: 'Account not found' });
+    }
+
+    // Collapse any legacy placeholder rows into their real account first so
+    // dedup by account id is actually correct (a legacy row and a reconnected
+    // row are the same physical Google account).
+    await reconcileLegacyAccounts(req.userId);
+
+    // Re-fetch: the requested row may have been a legacy placeholder that got
+    // merged away during reconciliation.
     const accountResult = await pool.query(
       'SELECT id, google_email, refresh_token, has_tasks_scope FROM google_accounts WHERE id = $1 AND user_id = $2',
       [req.params.id, req.userId]
     );
     if (accountResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Account not found' });
+      return res.status(409).json({
+        error:
+          'This account was a duplicate of an already-connected Google account and has been merged. Reload the page and sync from the remaining account.',
+      });
     }
     const account = accountResult.rows[0];
     if (account.has_tasks_scope === false) {
@@ -182,10 +209,27 @@ router.post('/accounts/:id/sync-all', auth, async (req, res) => {
     );
 
     const tasksClient = getTasksClientForToken(account.refresh_token);
+
+    // Belt-and-suspenders: even if the link table misses a duplicate (e.g. a
+    // legacy token that couldn't be reconciled because it lacks the email
+    // scope), don't recreate a task whose title is already in this account.
+    let existingTitles;
+    try {
+      existingTitles = await listExistingTaskTitles(tasksClient);
+    } catch (listErr) {
+      console.error('Sync-all: could not list existing Google tasks:', listErr.message);
+      existingTitles = new Set();
+    }
+
     let synced = 0;
     let failed = 0;
+    let skipped = 0;
 
     for (const task of tasksResult.rows) {
+      if (existingTitles.has((task.title || '').trim())) {
+        skipped += 1;
+        continue;
+      }
       const googleTask = {
         title: task.title,
         notes: task.description || undefined,
@@ -216,7 +260,7 @@ router.post('/accounts/:id/sync-all', auth, async (req, res) => {
       }
     }
 
-    res.json({ synced, failed });
+    res.json({ synced, failed, skipped });
   } catch (err) {
     console.error('Sync-all error:', err);
     res.status(500).json({ error: 'Failed to sync tasks' });
@@ -228,6 +272,101 @@ function getTasksClientForToken(refreshToken) {
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({ refresh_token: refreshToken });
   return google.tasks({ version: 'v1', auth: oauth2Client });
+}
+
+// Resolve the real Google email behind a refresh token. Returns null if the
+// token is dead or was never granted the email scope (e.g. old legacy tokens).
+async function resolveAccountEmail(refreshToken) {
+  try {
+    const oauth2Client = getOAuth2Client();
+    oauth2Client.setCredentials({ refresh_token: refreshToken });
+    const info = await google
+      .oauth2({ version: 'v2', auth: oauth2Client })
+      .userinfo.get();
+    return info.data.email || null;
+  } catch (err) {
+    console.error('resolveAccountEmail failed (non-fatal):', err.message);
+    return null;
+  }
+}
+
+// The legacy migration (see server/index.js) created placeholder
+// `legacy-<userId>@unknown` google_accounts rows for old single-token data.
+// When the user later reconnects that same Google account via OAuth, a
+// second row exists for the *same physical account*, so tasks get
+// double-posted. This collapses each placeholder onto the real account row
+// (or promotes it in place if no separate real row exists yet).
+async function reconcileLegacyAccounts(userId) {
+  const legacyRes = await pool.query(
+    "SELECT id, refresh_token FROM google_accounts WHERE user_id = $1 AND google_email LIKE 'legacy-%@unknown'",
+    [userId]
+  );
+  for (const legacy of legacyRes.rows) {
+    const realEmail = await resolveAccountEmail(legacy.refresh_token);
+    if (!realEmail) continue; // token dead or no email scope — leave as-is
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const realRes = await client.query(
+        'SELECT id FROM google_accounts WHERE user_id = $1 AND google_email = $2 AND id <> $3',
+        [userId, realEmail, legacy.id]
+      );
+      if (realRes.rows.length === 0) {
+        // No separate real row yet — just promote the placeholder in place.
+        await client.query(
+          'UPDATE google_accounts SET google_email = $1 WHERE id = $2',
+          [realEmail, legacy.id]
+        );
+      } else {
+        const realId = realRes.rows[0].id;
+        // Drop legacy links that collide with the real row's existing links
+        // (keep the real row's). Physical Google duplicates that already
+        // exist are intentionally left alone.
+        await client.query(
+          `DELETE FROM task_google_links lgl
+           WHERE lgl.google_account_id = $1
+             AND EXISTS (
+               SELECT 1 FROM task_google_links r
+               WHERE r.task_id = lgl.task_id AND r.google_account_id = $2
+             )`,
+          [legacy.id, realId]
+        );
+        await client.query(
+          'UPDATE task_google_links SET google_account_id = $1 WHERE google_account_id = $2',
+          [realId, legacy.id]
+        );
+        await client.query('DELETE FROM google_accounts WHERE id = $1', [legacy.id]);
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      console.error(`Legacy reconcile failed for account ${legacy.id} (non-fatal):`, err.message);
+    } finally {
+      client.release();
+    }
+  }
+}
+
+// Every task title currently in an account's default task list, used as a
+// scope-safe dedup signal (works even when a token lacks the email scope).
+async function listExistingTaskTitles(tasksClient) {
+  const titles = new Set();
+  let pageToken;
+  do {
+    const resp = await tasksClient.tasks.list({
+      tasklist: '@default',
+      maxResults: 100,
+      showCompleted: true,
+      showHidden: true,
+      pageToken,
+    });
+    for (const t of resp.data.items || []) {
+      if (t.title) titles.add(t.title.trim());
+    }
+    pageToken = resp.data.nextPageToken;
+  } while (pageToken);
+  return titles;
 }
 
 // List a user's connected Google accounts with their refresh tokens.
@@ -388,5 +527,6 @@ router.getTasksClientForToken = getTasksClientForToken;
 router.listGoogleAccounts = listGoogleAccounts;
 router.getTaskLinks = getTaskLinks;
 router.deleteGoogleTasksForUser = deleteGoogleTasksForUser;
+router.reconcileLegacyAccounts = reconcileLegacyAccounts;
 
 module.exports = router;
