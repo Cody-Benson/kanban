@@ -105,7 +105,15 @@ export default function AccountSettingsPage() {
                   </IconButton>
                 }
               >
-                <ListItemText primary={a.email} />
+                <ListItemText
+                  primary={a.email}
+                  secondary={
+                    a.hasTasksScope === false
+                      ? 'Missing Google Tasks permission — reconnect this account and check the Tasks box on the Google consent screen.'
+                      : null
+                  }
+                  secondaryTypographyProps={{ color: 'warning.main' }}
+                />
               </ListItem>
             ))}
           </List>

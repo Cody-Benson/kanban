@@ -38,9 +38,12 @@ export default function TaskDialog({
       setDueDate('');
       setAssignedTo(defaultAssignedTo);
     }
-    // Default: every connected account is selected.
+    // Default: select every account that can actually receive tasks. Accounts
+    // missing the Tasks permission would just fail, so leave them unchecked.
     setSelectedAccounts(
-      Object.fromEntries(googleAccounts.map((a) => [a.id, true]))
+      Object.fromEntries(
+        googleAccounts.map((a) => [a.id, a.hasTasksScope !== false])
+      )
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task, open, defaultAssignedTo, accountKey]);
@@ -104,7 +107,15 @@ export default function TaskDialog({
               }
             />
           }
-          label={a.email}
+          label={
+            a.hasTasksScope === false ? (
+              <Typography variant="body2" color="warning.main">
+                {a.email} — missing Tasks permission, reconnect in Account Settings
+              </Typography>
+            ) : (
+              a.email
+            )
+          }
         />
       ))}
     </FormGroup>

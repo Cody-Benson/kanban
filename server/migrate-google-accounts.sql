@@ -7,9 +7,13 @@ CREATE TABLE IF NOT EXISTS google_accounts (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   google_email VARCHAR(255) NOT NULL,
   refresh_token TEXT NOT NULL,
+  has_tasks_scope BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT NOW(),
   UNIQUE (user_id, google_email)
 );
+
+ALTER TABLE google_accounts
+  ADD COLUMN IF NOT EXISTS has_tasks_scope BOOLEAN NOT NULL DEFAULT TRUE;
 
 CREATE TABLE IF NOT EXISTS task_google_links (
   id SERIAL PRIMARY KEY,

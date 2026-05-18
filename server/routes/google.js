@@ -60,13 +60,21 @@ router.get('/callback', async (req, res) => {
       .userinfo.get();
     const googleEmail = userinfo.data.email;
 
+    // Google's granular consent screen lets the user approve the email scope
+    // but skip the Tasks scope; detect that so we can warn instead of failing
+    // silently on every sync.
+    const hasTasksScope = (tokens.scope || '')
+      .split(' ')
+      .includes('https://www.googleapis.com/auth/tasks');
+
     if (tokens.refresh_token && googleEmail) {
       await pool.query(
-        `INSERT INTO google_accounts (user_id, google_email, refresh_token)
-         VALUES ($1, $2, $3)
+        `INSERT INTO google_accounts (user_id, google_email, refresh_token, has_tasks_scope)
+         VALUES ($1, $2, $3, $4)
          ON CONFLICT (user_id, google_email)
-         DO UPDATE SET refresh_token = EXCLUDED.refresh_token`,
-        [decoded.userId, googleEmail, tokens.refresh_token]
+         DO UPDATE SET refresh_token = EXCLUDED.refresh_token,
+                       has_tasks_scope = EXCLUDED.has_tasks_scope`,
+        [decoded.userId, googleEmail, tokens.refresh_token, hasTasksScope]
       );
     }
 
@@ -83,10 +91,14 @@ router.get('/callback', async (req, res) => {
 router.get('/status', auth, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, google_email FROM google_accounts WHERE user_id = $1 ORDER BY created_at',
+      'SELECT id, google_email, has_tasks_scope FROM google_accounts WHERE user_id = $1 ORDER BY created_at',
       [req.userId]
     );
-    const accounts = result.rows.map((r) => ({ id: r.id, email: r.google_email }));
+    const accounts = result.rows.map((r) => ({
+      id: r.id,
+      email: r.google_email,
+      hasTasksScope: r.has_tasks_scope,
+    }));
     res.json({ connected: accounts.length > 0, accounts });
   } catch (err) {
     console.error('Google status error:', err);
@@ -98,10 +110,16 @@ router.get('/status', auth, async (req, res) => {
 router.get('/accounts', auth, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, google_email FROM google_accounts WHERE user_id = $1 ORDER BY created_at',
+      'SELECT id, google_email, has_tasks_scope FROM google_accounts WHERE user_id = $1 ORDER BY created_at',
       [req.userId]
     );
-    res.json(result.rows.map((r) => ({ id: r.id, email: r.google_email })));
+    res.json(
+      result.rows.map((r) => ({
+        id: r.id,
+        email: r.google_email,
+        hasTasksScope: r.has_tasks_scope,
+      }))
+    );
   } catch (err) {
     console.error('Google accounts error:', err);
     res.status(500).json({ error: 'Server error' });
