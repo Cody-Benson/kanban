@@ -178,18 +178,19 @@ router.delete('/:orgId', async (req, res) => {
     }
 
     const taskRows = await pool.query(
-      `SELECT t.google_task_id FROM tasks t
+      `SELECT tgl.google_account_id, tgl.google_task_id FROM task_google_links tgl
+       JOIN tasks t ON tgl.task_id = t.id
        JOIN projects p ON t.project_id = p.id
        JOIN clients c ON p.client_id = c.id
        JOIN teams tm ON c.team_id = tm.id
-       WHERE tm.org_id = $1 AND t.google_task_id IS NOT NULL`,
+       WHERE tm.org_id = $1`,
       [req.params.orgId]
     );
 
     await pool.query('DELETE FROM organizations WHERE id = $1', [req.params.orgId]);
 
     const { deleteGoogleTasksForUser } = require('./google');
-    deleteGoogleTasksForUser(req.userId, taskRows.rows.map((r) => r.google_task_id))
+    deleteGoogleTasksForUser(req.userId, taskRows.rows)
       .catch((err) => console.error('Bulk Google Tasks delete error (non-fatal):', err.message));
 
     res.json({ message: 'Organization deleted' });

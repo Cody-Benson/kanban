@@ -107,16 +107,17 @@ router.delete('/:id', async (req, res) => {
     }
 
     const taskRows = await pool.query(
-      `SELECT t.google_task_id FROM tasks t
+      `SELECT tgl.google_account_id, tgl.google_task_id FROM task_google_links tgl
+       JOIN tasks t ON tgl.task_id = t.id
        JOIN projects p ON t.project_id = p.id
-       WHERE p.client_id = $1 AND t.google_task_id IS NOT NULL`,
+       WHERE p.client_id = $1`,
       [req.params.id]
     );
 
     await pool.query('DELETE FROM clients WHERE id = $1', [req.params.id]);
 
     const { deleteGoogleTasksForUser } = require('./google');
-    deleteGoogleTasksForUser(req.userId, taskRows.rows.map((r) => r.google_task_id))
+    deleteGoogleTasksForUser(req.userId, taskRows.rows)
       .catch((err) => console.error('Bulk Google Tasks delete error (non-fatal):', err.message));
 
     res.json({ message: 'Client deleted' });

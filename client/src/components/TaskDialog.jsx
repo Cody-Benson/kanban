@@ -2,19 +2,29 @@ import { useState, useEffect } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Button, Box, Chip, CircularProgress, Autocomplete,
-  FormControlLabel, Checkbox,
+  FormControlLabel, Checkbox, Typography, FormGroup,
 } from '@mui/material';
 import TaskAltIcon from '@mui/icons-material/TaskAlt';
-import LinkIcon from '@mui/icons-material/Link';
 import { getGoogleAuthUrl, createGoogleTask } from '../api/google';
 
-export default function TaskDialog({ open, task, onClose, onSave, googleConnected, onTaskLinked, teamMembers = [], defaultAssignedTo = null }) {
+// Stable default so an absent prop doesn't change identity each render
+// (which would retrigger the account-selection effect infinitely).
+const EMPTY_ACCOUNTS = [];
+
+export default function TaskDialog({
+  open, task, onClose, onSave, googleAccounts = EMPTY_ACCOUNTS, onTaskLinked,
+  teamMembers = [], defaultAssignedTo = null,
+}) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [assignedTo, setAssignedTo] = useState(null);
   const [addingToGoogle, setAddingToGoogle] = useState(false);
-  const [addToGoogle, setAddToGoogle] = useState(true);
+  // Map of account id -> boolean (which accounts a new task fans out to)
+  const [selectedAccounts, setSelectedAccounts] = useState({});
+
+  const hasGoogle = googleAccounts.length > 0;
+  const accountKey = googleAccounts.map((a) => a.id).join(',');
 
   useEffect(() => {
     if (task) {
@@ -27,30 +37,50 @@ export default function TaskDialog({ open, task, onClose, onSave, googleConnecte
       setDescription('');
       setDueDate('');
       setAssignedTo(defaultAssignedTo);
-      setAddToGoogle(true);
     }
-  }, [task, open, defaultAssignedTo]);
+    // Default: every connected account is selected.
+    setSelectedAccounts(
+      Object.fromEntries(googleAccounts.map((a) => [a.id, true]))
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task, open, defaultAssignedTo, accountKey]);
+
+  const selectedIds = Object.entries(selectedAccounts)
+    .filter(([, v]) => v)
+    .map(([k]) => Number(k));
 
   const handleSave = () => {
     if (!title.trim()) return;
-    onSave(title.trim(), description.trim(), dueDate || null, assignedTo, addToGoogle);
+    // add_to_google true only if at least one account is picked; pass the
+    // explicit id list so the server fans out to exactly those accounts.
+    const addToGoogle = hasGoogle && selectedIds.length > 0;
+    onSave(
+      title.trim(),
+      description.trim(),
+      dueDate || null,
+      assignedTo,
+      addToGoogle,
+      addToGoogle ? selectedIds : null
+    );
   };
 
-  const handleAddToGoogleTasks = async () => {
-    if (!googleConnected) {
-      // Redirect to Google OAuth
-      try {
-        const { url } = await getGoogleAuthUrl();
-        window.location.href = url;
-      } catch (err) {
-        console.error('Failed to get Google auth URL:', err);
-      }
+  const connectGoogle = async () => {
+    try {
+      const { url } = await getGoogleAuthUrl();
+      window.location.href = url;
+    } catch (err) {
+      console.error('Failed to get Google auth URL:', err);
+    }
+  };
+
+  const handleAddExistingToGoogle = async () => {
+    if (!hasGoogle) {
+      connectGoogle();
       return;
     }
-
     setAddingToGoogle(true);
     try {
-      await createGoogleTask(task.id);
+      await createGoogleTask(task.id, selectedIds);
       if (onTaskLinked) onTaskLinked();
     } catch (err) {
       console.error('Failed to add to Google Tasks:', err);
@@ -60,7 +90,25 @@ export default function TaskDialog({ open, task, onClose, onSave, googleConnecte
   };
 
   const isExistingTask = !!task;
-  const isLinkedToGoogle = !!task?.google_task_id;
+
+  const accountCheckboxes = (
+    <FormGroup>
+      {googleAccounts.map((a) => (
+        <FormControlLabel
+          key={a.id}
+          control={
+            <Checkbox
+              checked={!!selectedAccounts[a.id]}
+              onChange={(e) =>
+                setSelectedAccounts((prev) => ({ ...prev, [a.id]: e.target.checked }))
+              }
+            />
+          }
+          label={a.email}
+        />
+      ))}
+    </FormGroup>
+  );
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
@@ -104,37 +152,50 @@ export default function TaskDialog({ open, task, onClose, onSave, googleConnecte
             )}
           />
         )}
+
         {!isExistingTask && (
-          <FormControlLabel
-            sx={{ mt: 1 }}
-            control={
-              <Checkbox
-                checked={addToGoogle}
-                onChange={(e) => setAddToGoogle(e.target.checked)}
-              />
-            }
-            label="Add to Google Tasks"
-          />
-        )}
-        {isExistingTask && (
-          <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-            {isLinkedToGoogle ? (
-              <Chip
-                icon={<LinkIcon />}
-                label="Linked to Google Tasks"
-                color="success"
-                size="small"
-                variant="outlined"
-              />
+          <Box sx={{ mt: 1.5 }}>
+            {hasGoogle ? (
+              <>
+                <Typography variant="subtitle2" color="text.secondary">
+                  Add to Google Tasks
+                </Typography>
+                {accountCheckboxes}
+              </>
             ) : (
-              <Button
-                size="small"
-                startIcon={addingToGoogle ? <CircularProgress size={16} /> : <TaskAltIcon />}
-                onClick={handleAddToGoogleTasks}
-                disabled={addingToGoogle}
-              >
-                {googleConnected ? 'Add to Google Tasks' : 'Connect Google & Add to Tasks'}
+              <Button size="small" startIcon={<TaskAltIcon />} onClick={connectGoogle}>
+                Connect a Google account
               </Button>
+            )}
+          </Box>
+        )}
+
+        {isExistingTask && (
+          <Box sx={{ mt: 1.5 }}>
+            {hasGoogle ? (
+              <>
+                <Typography variant="subtitle2" color="text.secondary">
+                  Add to Google Tasks
+                </Typography>
+                {accountCheckboxes}
+                <Button
+                  size="small"
+                  sx={{ mt: 0.5 }}
+                  startIcon={addingToGoogle ? <CircularProgress size={16} /> : <TaskAltIcon />}
+                  onClick={handleAddExistingToGoogle}
+                  disabled={addingToGoogle || selectedIds.length === 0}
+                >
+                  Sync to selected accounts
+                </Button>
+              </>
+            ) : (
+              <Chip
+                icon={<TaskAltIcon />}
+                label="Connect a Google account"
+                onClick={connectGoogle}
+                variant="outlined"
+                size="small"
+              />
             )}
           </Box>
         )}

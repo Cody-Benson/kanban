@@ -35,7 +35,7 @@ export default function KanbanBoard({ projectId, projectName }) {
   const [error, setError] = useState('');
   const [taskDialog, setTaskDialog] = useState({ open: false, task: null });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, task: null });
-  const [googleConnected, setGoogleConnected] = useState(false);
+  const [googleAccounts, setGoogleAccounts] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
   const [assigneeFilter, setAssigneeFilter] = useState('all');
 
@@ -54,7 +54,7 @@ export default function KanbanBoard({ projectId, projectName }) {
 
   useEffect(() => {
     getGoogleStatus()
-      .then((data) => setGoogleConnected(data.connected))
+      .then((data) => setGoogleAccounts(data.accounts || []))
       .catch(() => {});
     if (currentTeam?.id) {
       getTeamMembers(currentTeam.id)
@@ -124,9 +124,9 @@ export default function KanbanBoard({ projectId, projectName }) {
     }
   };
 
-  const handleCreateTask = async (title, description, dueDate, assignedTo, addToGoogle) => {
+  const handleCreateTask = async (title, description, dueDate, assignedTo, addToGoogle, googleAccountIds) => {
     try {
-      await createTask(projectId, title, description, dueDate, assignedTo, addToGoogle);
+      await createTask(projectId, title, description, dueDate, assignedTo, addToGoogle, googleAccountIds);
       setTaskDialog({ open: false, task: null });
       load();
     } catch {
@@ -215,7 +215,7 @@ export default function KanbanBoard({ projectId, projectName }) {
         task={taskDialog.task}
         onClose={() => setTaskDialog({ open: false, task: null })}
         onSave={taskDialog.task ? handleUpdateTask : handleCreateTask}
-        googleConnected={googleConnected}
+        googleAccounts={googleAccounts}
         onTaskLinked={load}
         teamMembers={teamMembers}
         defaultAssignedTo={defaultAssignedTo}
