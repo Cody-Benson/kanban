@@ -340,6 +340,13 @@ async function reconcileLegacyAccounts(userId) {
         );
         await client.query('DELETE FROM google_accounts WHERE id = $1', [legacy.id]);
       }
+      // The legacy single-token data now lives in google_accounts. Clear the
+      // old column so the startup migration stops recreating the placeholder
+      // on every deploy.
+      await client.query(
+        'UPDATE users SET google_refresh_token = NULL WHERE id = $1',
+        [userId]
+      );
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');
