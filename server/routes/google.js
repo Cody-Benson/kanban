@@ -210,15 +210,17 @@ router.post('/accounts/:id/sync-all', auth, async (req, res) => {
 
     const tasksClient = getTasksClientForToken(account.refresh_token);
 
-    // Belt-and-suspenders: even if the link table misses a duplicate (e.g. a
-    // legacy token that couldn't be reconciled because it lacks the email
-    // scope), don't recreate a task whose title is already in this account.
-    let existingTitles;
+    // Collapse any same-title duplicates already in this account down to one
+    // (self-healing), then use the surviving titles to avoid recreating tasks
+    // that still exist — works even when a token lacks the email scope.
+    let existingTitles = new Set();
+    let deduped = 0;
     try {
-      existingTitles = await listExistingTaskTitles(tasksClient);
+      const r = await dedupeGoogleTasksByTitle(tasksClient, account.id);
+      existingTitles = r.survivingTitles;
+      deduped = r.deleted;
     } catch (listErr) {
-      console.error('Sync-all: could not list existing Google tasks:', listErr.message);
-      existingTitles = new Set();
+      console.error('Sync-all: dedupe pass failed (non-fatal):', listErr.message);
     }
 
     let synced = 0;
@@ -260,7 +262,7 @@ router.post('/accounts/:id/sync-all', auth, async (req, res) => {
       }
     }
 
-    res.json({ synced, failed, skipped });
+    res.json({ synced, failed, skipped, deduped });
   } catch (err) {
     console.error('Sync-all error:', err);
     res.status(500).json({ error: 'Failed to sync tasks' });
@@ -348,10 +350,13 @@ async function reconcileLegacyAccounts(userId) {
   }
 }
 
-// Every task title currently in an account's default task list, used as a
-// scope-safe dedup signal (works even when a token lacks the email scope).
-async function listExistingTaskTitles(tasksClient) {
-  const titles = new Set();
+// Collapse same-title duplicates in an account's default task list: keep one
+// task per title (preferring one the app already tracks), delete the rest in
+// Google, and repoint any task_google_links for this account that referenced
+// a deleted task to the survivor. Returns the set of surviving titles and the
+// number deleted. Per-task failures are non-fatal.
+async function dedupeGoogleTasksByTitle(tasksClient, accountId) {
+  const items = [];
   let pageToken;
   do {
     const resp = await tasksClient.tasks.list({
@@ -361,12 +366,50 @@ async function listExistingTaskTitles(tasksClient) {
       showHidden: true,
       pageToken,
     });
-    for (const t of resp.data.items || []) {
-      if (t.title) titles.add(t.title.trim());
-    }
+    for (const t of resp.data.items || []) items.push(t);
     pageToken = resp.data.nextPageToken;
   } while (pageToken);
-  return titles;
+
+  const linkRes = await pool.query(
+    'SELECT google_task_id FROM task_google_links WHERE google_account_id = $1',
+    [accountId]
+  );
+  const trackedIds = new Set(linkRes.rows.map((r) => r.google_task_id));
+
+  const byTitle = new Map();
+  for (const t of items) {
+    if (!t.id || !t.title) continue;
+    const key = t.title.trim();
+    if (!byTitle.has(key)) byTitle.set(key, []);
+    byTitle.get(key).push(t);
+  }
+
+  const survivingTitles = new Set(byTitle.keys());
+  let deleted = 0;
+
+  for (const group of byTitle.values()) {
+    if (group.length < 2) continue;
+    const survivor = group.find((g) => trackedIds.has(g.id)) || group[0];
+    for (const victim of group) {
+      if (victim.id === survivor.id) continue;
+      try {
+        await tasksClient.tasks.delete({ tasklist: '@default', task: victim.id });
+        deleted += 1;
+      } catch (err) {
+        console.error(
+          `Sync-all dedupe: delete ${victim.id} failed (non-fatal): ${err.message}`
+        );
+        continue;
+      }
+      // Keep the app's links valid by pointing them at the survivor.
+      await pool.query(
+        'UPDATE task_google_links SET google_task_id = $1 WHERE google_account_id = $2 AND google_task_id = $3',
+        [survivor.id, accountId, victim.id]
+      );
+    }
+  }
+
+  return { survivingTitles, deleted };
 }
 
 // List a user's connected Google accounts with their refresh tokens.
