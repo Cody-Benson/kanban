@@ -213,11 +213,11 @@ router.post('/accounts/:id/sync-all', auth, async (req, res) => {
     // Collapse any same-title duplicates already in this account down to one
     // (self-healing), then use the surviving titles to avoid recreating tasks
     // that still exist — works even when a token lacks the email scope.
-    let existingTitles = new Set();
+    let survivingByTitle = new Map();
     let deduped = 0;
     try {
       const r = await dedupeGoogleTasksByTitle(tasksClient, account.id);
-      existingTitles = r.survivingTitles;
+      survivingByTitle = r.survivingByTitle;
       deduped = r.deleted;
     } catch (listErr) {
       console.error('Sync-all: dedupe pass failed (non-fatal):', listErr.message);
@@ -225,11 +225,36 @@ router.post('/accounts/:id/sync-all', auth, async (req, res) => {
 
     let synced = 0;
     let failed = 0;
-    let skipped = 0;
+    // `skipped` is retained for response-shape compatibility. With adopt-existing
+    // it should stay 0 in practice — every unlinked-but-same-title task now gets
+    // a link row instead of being silently passed over.
+    const skipped = 0;
 
     for (const task of tasksResult.rows) {
-      if (existingTitles.has((task.title || '').trim())) {
-        skipped += 1;
+      const titleKey = (task.title || '').trim();
+      const existingId = survivingByTitle.get(titleKey);
+      if (existingId) {
+        // Same-title Google task already exists — adopt it by writing a link row
+        // pointing at it, so future edits in the app patch the right Google task
+        // instead of silently no-op'ing (the bug: an orphaned task whose Google
+        // twin existed but had no link row, so PUT /api/tasks/:id's `if (links.length > 0)`
+        // check skipped Google sync entirely).
+        try {
+          await pool.query(
+            `INSERT INTO task_google_links (task_id, google_account_id, google_task_id)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (task_id, google_account_id)
+             DO UPDATE SET google_task_id = EXCLUDED.google_task_id`,
+            [task.id, account.id, existingId]
+          );
+          synced += 1;
+        } catch (adoptErr) {
+          failed += 1;
+          console.error(
+            `Sync-all: adopt existing for task ${task.id} -> account ${account.id} failed (non-fatal):`,
+            adoptErr.message
+          );
+        }
         continue;
       }
       const googleTask = {
@@ -391,12 +416,18 @@ async function dedupeGoogleTasksByTitle(tasksClient, accountId) {
     byTitle.get(key).push(t);
   }
 
-  const survivingTitles = new Set(byTitle.keys());
+  // Map each title to the Google task that survives this dedupe pass.
+  // Single-task groups also populate this map so sync-all can adopt
+  // pre-existing, never-linked Google tasks (not just dedupe survivors).
+  const survivingByTitle = new Map();
   let deleted = 0;
 
-  for (const group of byTitle.values()) {
-    if (group.length < 2) continue;
+  for (const [title, group] of byTitle) {
+    // Prefer a survivor the app already tracks so existing links stay valid.
     const survivor = group.find((g) => trackedIds.has(g.id)) || group[0];
+    survivingByTitle.set(title, survivor.id);
+
+    if (group.length < 2) continue;
     for (const victim of group) {
       if (victim.id === survivor.id) continue;
       try {
@@ -416,7 +447,7 @@ async function dedupeGoogleTasksByTitle(tasksClient, accountId) {
     }
   }
 
-  return { survivingTitles, deleted };
+  return { survivingByTitle, deleted };
 }
 
 // List a user's connected Google accounts with their refresh tokens.
