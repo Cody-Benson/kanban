@@ -208,11 +208,27 @@ async function runMigrations() {
   `);
 
   // Migrate legacy single-token data into the new multi-account tables.
+  //
+  // Two guards make this idempotent against manual cleanup:
+  //
+  //  1. The legacy placeholder is created ONLY if the user has no existing
+  //     google_accounts row. Once a real account is connected (or the user
+  //     has manually deleted a stuck placeholder), the migration stops
+  //     resurrecting `legacy-<id>@unknown` on every deploy.
+  //
+  //  2. The task_google_links backfill links ONLY to the legacy placeholder
+  //     row. Without this filter, the join `ga.user_id = tm.user_id` matched
+  //     every account the user has and inserted links using the OLD
+  //     tasks.google_task_id — a dead pointer in any real account's Tasks
+  //     list, which then breaks future patches for those tasks.
   await pool.query(`
     INSERT INTO google_accounts (user_id, google_email, refresh_token)
     SELECT id, 'legacy-' || id || '@unknown', google_refresh_token
-    FROM users
+    FROM users u
     WHERE google_refresh_token IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM google_accounts ga WHERE ga.user_id = u.id
+      )
     ON CONFLICT (user_id, google_email) DO NOTHING;
 
     INSERT INTO task_google_links (task_id, google_account_id, google_task_id)
@@ -221,7 +237,9 @@ async function runMigrations() {
     JOIN projects p ON t.project_id = p.id
     JOIN clients c ON p.client_id = c.id
     JOIN team_members tm ON c.team_id = tm.team_id
-    JOIN google_accounts ga ON ga.user_id = tm.user_id
+    JOIN google_accounts ga
+      ON ga.user_id = tm.user_id
+     AND ga.google_email LIKE 'legacy-%@unknown'
     WHERE t.google_task_id IS NOT NULL
     ON CONFLICT (task_id, google_account_id) DO NOTHING;
   `);
