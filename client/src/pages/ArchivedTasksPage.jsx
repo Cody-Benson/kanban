@@ -24,10 +24,13 @@ import RestoreIcon from '@mui/icons-material/Restore';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { getProject } from '../api/projects';
 import { getArchivedTasks, restoreTask, deleteTask } from '../api/tasks';
+import { useToast } from '../context/ToastContext';
+import { googleSyncWarning } from '../utils/googleSync';
 
 export default function ArchivedTasksPage() {
   const { projectId } = useParams();
   const navigate = useNavigate();
+  const { show: showToast } = useToast();
   const [project, setProject] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -62,9 +65,11 @@ export default function ArchivedTasksPage() {
 
   const handleDelete = async () => {
     try {
-      await deleteTask(deleteDialog.task.id);
+      const res = await deleteTask(deleteDialog.task.id);
       setTasks((prev) => prev.filter((t) => t.id !== deleteDialog.task.id));
       setDeleteDialog({ open: false, task: null });
+      const warn = googleSyncWarning(res, 'delete sync');
+      if (warn) showToast(warn, 'warning');
     } catch {
       setError('Failed to delete task');
     }

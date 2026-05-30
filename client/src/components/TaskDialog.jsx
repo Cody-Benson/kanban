@@ -6,6 +6,8 @@ import {
 } from '@mui/material';
 import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import { getGoogleAuthUrl, createGoogleTask } from '../api/google';
+import { useToast } from '../context/ToastContext';
+import { googleSyncWarning } from '../utils/googleSync';
 
 // Stable default so an absent prop doesn't change identity each render
 // (which would retrigger the account-selection effect infinitely).
@@ -15,6 +17,7 @@ export default function TaskDialog({
   open, task, onClose, onSave, googleAccounts = EMPTY_ACCOUNTS, onTaskLinked,
   teamMembers = [], defaultAssignedTo = null,
 }) {
+  const { show: showToast } = useToast();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [dueDate, setDueDate] = useState('');
@@ -83,10 +86,13 @@ export default function TaskDialog({
     }
     setAddingToGoogle(true);
     try {
-      await createGoogleTask(task.id, selectedIds);
+      const res = await createGoogleTask(task.id, selectedIds);
       if (onTaskLinked) onTaskLinked();
+      const warn = googleSyncWarning(res, 'link');
+      if (warn) showToast(warn, 'warning');
     } catch (err) {
       console.error('Failed to add to Google Tasks:', err);
+      showToast('Failed to add to Google Tasks', 'error');
     } finally {
       setAddingToGoogle(false);
     }

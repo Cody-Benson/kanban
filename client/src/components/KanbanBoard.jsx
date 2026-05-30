@@ -24,11 +24,14 @@ import { getTasks, createTask, updateTask, deleteTask, reorderTask } from '../ap
 import { getGoogleStatus } from '../api/google';
 import { getTeamMembers } from '../api/teams';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import { googleSyncWarning } from '../utils/googleSync';
 
 const STATUSES = ['todo', 'in-progress', 'blocked', 'completed'];
 
 export default function KanbanBoard({ projectId, projectName }) {
   const { currentTeam } = useAuth();
+  const { show: showToast } = useToast();
   const navigate = useNavigate();
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -116,8 +119,10 @@ export default function KanbanBoard({ projectId, projectName }) {
     setTasks(newTasks);
 
     try {
-      const serverTasks = await reorderTask(taskId, newStatus, newPosition);
-      setTasks(serverTasks);
+      const res = await reorderTask(taskId, newStatus, newPosition);
+      setTasks(res.tasks);
+      const warn = googleSyncWarning(res, 'status sync');
+      if (warn) showToast(warn, 'warning');
     } catch {
       setTasks(prevTasks);
       setError('Failed to reorder task');
@@ -126,9 +131,11 @@ export default function KanbanBoard({ projectId, projectName }) {
 
   const handleCreateTask = async (title, description, dueDate, assignedTo, addToGoogle, googleAccountIds) => {
     try {
-      await createTask(projectId, title, description, dueDate, assignedTo, addToGoogle, googleAccountIds);
+      const res = await createTask(projectId, title, description, dueDate, assignedTo, addToGoogle, googleAccountIds);
       setTaskDialog({ open: false, task: null });
       load();
+      const warn = googleSyncWarning(res, 'auto-create');
+      if (warn) showToast(warn, 'warning');
     } catch {
       setError('Failed to create task');
     }
@@ -136,9 +143,11 @@ export default function KanbanBoard({ projectId, projectName }) {
 
   const handleUpdateTask = async (title, description, dueDate, assignedTo) => {
     try {
-      await updateTask(taskDialog.task.id, title, description, dueDate, assignedTo);
+      const res = await updateTask(taskDialog.task.id, title, description, dueDate, assignedTo);
       setTaskDialog({ open: false, task: null });
       load();
+      const warn = googleSyncWarning(res, 'update sync');
+      if (warn) showToast(warn, 'warning');
     } catch {
       setError('Failed to update task');
     }
@@ -146,9 +155,11 @@ export default function KanbanBoard({ projectId, projectName }) {
 
   const handleDeleteTask = async () => {
     try {
-      await deleteTask(deleteDialog.task.id);
+      const res = await deleteTask(deleteDialog.task.id);
       setDeleteDialog({ open: false, task: null });
       load();
+      const warn = googleSyncWarning(res, 'delete sync');
+      if (warn) showToast(warn, 'warning');
     } catch {
       setError('Failed to delete task');
     }

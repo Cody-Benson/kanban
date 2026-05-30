@@ -10,6 +10,8 @@ import MiniKanban from './MiniKanban';
 import TaskDialog from './TaskDialog';
 import { getMyTasks, updateTask } from '../api/tasks';
 import { getTeamMembers } from '../api/teams';
+import { useToast } from '../context/ToastContext';
+import { googleSyncWarning } from '../utils/googleSync';
 
 const STATUSES = ['todo', 'in-progress', 'blocked', 'completed'];
 
@@ -45,6 +47,7 @@ function isDueThisWeek(due) {
 }
 
 export default function MyTasksSection() {
+  const { show: showToast } = useToast();
   const navigate = useNavigate();
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -143,9 +146,11 @@ export default function MyTasksSection() {
 
   const handleSaveTask = async (title, description, dueDate, assignedTo) => {
     try {
-      await updateTask(taskDialog.task.id, title, description, dueDate, assignedTo);
+      const res = await updateTask(taskDialog.task.id, title, description, dueDate, assignedTo);
       setTaskDialog({ open: false, task: null, teamMembers: [] });
       load();
+      const warn = googleSyncWarning(res, 'update sync');
+      if (warn) showToast(warn, 'warning');
     } catch {
       setError('Failed to update task');
     }

@@ -294,6 +294,22 @@ router.post('/accounts/:id/sync-all', auth, async (req, res) => {
   }
 });
 
+// Build a .catch() handler that captures a per-link Google API failure
+// into an errors array AND logs it server-side. Centralises the old
+// "swallow into console.error and pretend it didn't happen" antipattern
+// so every route can surface structured failures to the client.
+function captureGoogleError(errors, link, contextLabel) {
+  return (err) => {
+    const error = err.message || String(err);
+    console.error(`${contextLabel} failed for ${link.google_task_id} (non-fatal):`, error);
+    errors.push({
+      accountId: link.account_id,
+      googleTaskId: link.google_task_id,
+      error,
+    });
+  };
+}
+
 // Build an authenticated Tasks API client from a stored refresh token.
 function getTasksClientForToken(refreshToken) {
   const oauth2Client = getOAuth2Client();
@@ -510,6 +526,7 @@ router.post('/tasks', auth, async (req, res) => {
     }
 
     const linked = [];
+    const googleSyncErrors = [];
     for (const acc of targets) {
       try {
         const tasksClient = getTasksClientForToken(acc.refresh_token);
@@ -526,11 +543,13 @@ router.post('/tasks', auth, async (req, res) => {
         );
         linked.push(acc.id);
       } catch (accErr) {
-        console.error(`Link to account ${acc.id} failed (non-fatal):`, accErr.message);
+        const error = accErr.message || String(accErr);
+        console.error(`Link to account ${acc.id} failed (non-fatal):`, error);
+        googleSyncErrors.push({ accountId: acc.id, error });
       }
     }
 
-    res.json({ linked });
+    res.json({ linked, googleSyncErrors });
   } catch (err) {
     console.error('Create Google Task error:', err);
     res.status(500).json({ error: 'Failed to create Google Task' });
@@ -557,17 +576,16 @@ router.delete('/tasks/:taskId', auth, async (req, res) => {
     const links = await getTaskLinks(taskId);
     await pool.query('DELETE FROM task_google_links WHERE task_id = $1', [taskId]);
 
+    const googleSyncErrors = [];
     await Promise.all(
       links.map((l) =>
         getTasksClientForToken(l.refresh_token)
           .tasks.delete({ tasklist: '@default', task: l.google_task_id })
-          .catch((err) =>
-            console.error(`Google Tasks delete failed for ${l.google_task_id} (non-fatal):`, err.message)
-          )
+          .catch(captureGoogleError(googleSyncErrors, l, 'Google Tasks delete'))
       )
     );
 
-    res.json({ message: 'Google Task links removed' });
+    res.json({ message: 'Google Task links removed', googleSyncErrors });
   } catch (err) {
     console.error('Remove Google Task link error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -609,5 +627,6 @@ router.listGoogleAccounts = listGoogleAccounts;
 router.getTaskLinks = getTaskLinks;
 router.deleteGoogleTasksForUser = deleteGoogleTasksForUser;
 router.reconcileLegacyAccounts = reconcileLegacyAccounts;
+router.captureGoogleError = captureGoogleError;
 
 module.exports = router;

@@ -167,6 +167,7 @@ router.post('/by-project/:projectId', async (req, res) => {
     );
     const newTask = result.rows[0];
 
+    const googleSyncErrors = [];
     if (wantsGoogleTask && googleTargets.length > 0) {
       const googleRoutes = require('./google');
       const dueIso = new Date(`${effectiveDueDate}T00:00:00Z`).toISOString();
@@ -190,12 +191,14 @@ router.post('/by-project/:projectId', async (req, res) => {
             [newTask.id, acc.id, googleTask.data.id]
           );
         } catch (googleErr) {
-          console.error(`Auto Google Task creation for account ${acc.id} (non-fatal):`, googleErr.message);
+          const error = googleErr.message || String(googleErr);
+          console.error(`Auto Google Task creation for account ${acc.id} (non-fatal):`, error);
+          googleSyncErrors.push({ accountId: acc.id, error });
         }
       }
     }
 
-    res.status(201).json(newTask);
+    res.status(201).json({ ...newTask, googleSyncErrors });
   } catch (err) {
     console.error('Create task error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -329,6 +332,7 @@ router.put('/reorder', async (req, res) => {
     await client.query('COMMIT');
 
     // Google Tasks sync: update every linked Google Task's status on column change
+    const googleSyncErrors = [];
     if (oldStatus !== newStatus) {
       try {
         const googleRoutes = require('./google');
@@ -343,13 +347,13 @@ router.put('/reorder', async (req, res) => {
                 task: l.google_task_id,
                 requestBody: { status: googleStatus },
               })
-              .catch((err) =>
-                console.error(`Google Tasks status sync failed for ${l.google_task_id} (non-fatal):`, err.message)
-              )
+              .catch(googleRoutes.captureGoogleError(googleSyncErrors, l, 'Google Tasks status sync'))
           )
         );
       } catch (googleErr) {
-        console.error('Google Tasks sync error (non-fatal):', googleErr.message);
+        const error = googleErr.message || String(googleErr);
+        console.error('Google Tasks sync error (non-fatal):', error);
+        googleSyncErrors.push({ error });
       }
     }
 
@@ -363,7 +367,7 @@ router.put('/reorder', async (req, res) => {
        ORDER BY t.position`,
       [projectId]
     );
-    res.json(allTasks.rows);
+    res.json({ tasks: allTasks.rows, googleSyncErrors });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Reorder error:', err);
@@ -416,6 +420,7 @@ router.put('/:id', async (req, res) => {
     // due=null on every edit would clear the calendar entry for tasks whose
     // DB row has no date but whose Google Task does (created via the default
     // "today" path).
+    const googleSyncErrors = [];
     try {
       const googleRoutes = require('./google');
       const links = await googleRoutes.getTaskLinks(req.params.id);
@@ -438,17 +443,17 @@ router.put('/:id', async (req, res) => {
                 task: l.google_task_id,
                 requestBody,
               })
-              .catch((err) =>
-                console.error(`Google Tasks update sync failed for ${l.google_task_id} (non-fatal):`, err.message)
-              )
+              .catch(googleRoutes.captureGoogleError(googleSyncErrors, l, 'Google Tasks update sync'))
           )
         );
       }
     } catch (googleErr) {
-      console.error('Google Tasks update sync error (non-fatal):', googleErr.message);
+      const error = googleErr.message || String(googleErr);
+      console.error('Google Tasks update sync error (non-fatal):', error);
+      googleSyncErrors.push({ error });
     }
 
-    res.json(updatedTask);
+    res.json({ ...updatedTask, googleSyncErrors });
   } catch (err) {
     console.error('Update task error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -475,18 +480,17 @@ router.delete('/:id', async (req, res) => {
     await pool.query('DELETE FROM tasks WHERE id = $1', [req.params.id]);
 
     // Google Tasks sync: delete the linked Google Task in every account (non-fatal)
+    const googleSyncErrors = [];
     await Promise.all(
       links.map((l) =>
         googleRoutes
           .getTasksClientForToken(l.refresh_token)
           .tasks.delete({ tasklist: '@default', task: l.google_task_id })
-          .catch((err) =>
-            console.error(`Google Tasks delete sync failed for ${l.google_task_id} (non-fatal):`, err.message)
-          )
+          .catch(googleRoutes.captureGoogleError(googleSyncErrors, l, 'Google Tasks delete sync'))
       )
     );
 
-    res.json({ message: 'Task deleted' });
+    res.json({ message: 'Task deleted', googleSyncErrors });
   } catch (err) {
     console.error('Delete task error:', err);
     res.status(500).json({ error: 'Server error' });

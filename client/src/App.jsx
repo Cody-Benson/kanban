@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { CssBaseline } from '@mui/material';
 import { AuthProvider } from './context/AuthContext';
+import { ToastProvider } from './context/ToastContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
@@ -22,7 +23,8 @@ export default function App() {
     <>
       <CssBaseline />
       <AuthProvider>
-        <BrowserRouter>
+        <ToastProvider>
+          <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
@@ -104,6 +106,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
+        </ToastProvider>
       </AuthProvider>
     </>
   );
