@@ -14,3 +14,5 @@ export const resetPassword = (token, password) =>
 
 export const changePassword = (currentPassword, newPassword) =>
   api.put('/auth/change-password', { currentPassword, newPassword }).then((r) => r.data);
+
+export const getMe = () => api.get('/auth/me').then((r) => r.data);

@@ -19,6 +19,11 @@ export function AuthProvider({ children }) {
       try {
         const payload = JSON.parse(atob(token.split('.')[1]));
         setUser({ id: payload.userId });
+        // JWT only carries userId, so fetch the full row (id, email) so pages
+        // like Account Settings can render the user's email after a refresh.
+        // Best-effort — token may be expired or server may be down, in which
+        // case the page just renders without email until next login.
+        authApi.getMe().then(setUser).catch(() => {});
         // Load orgs and teams for returning users (page refresh)
         orgsApi.getOrgs().then((orgList) => {
           setOrgs(orgList);
