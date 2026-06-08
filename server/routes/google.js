@@ -73,7 +73,8 @@ router.get('/callback', async (req, res) => {
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (user_id, google_email)
          DO UPDATE SET refresh_token = EXCLUDED.refresh_token,
-                       has_tasks_scope = EXCLUDED.has_tasks_scope`,
+                       has_tasks_scope = EXCLUDED.has_tasks_scope,
+                       needs_reauth = FALSE`,
         [decoded.userId, googleEmail, tokens.refresh_token, hasTasksScope]
       );
     }
@@ -99,13 +100,14 @@ router.get('/callback', async (req, res) => {
 router.get('/status', auth, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, google_email, has_tasks_scope FROM google_accounts WHERE user_id = $1 ORDER BY created_at',
+      'SELECT id, google_email, has_tasks_scope, needs_reauth FROM google_accounts WHERE user_id = $1 ORDER BY created_at',
       [req.userId]
     );
     const accounts = result.rows.map((r) => ({
       id: r.id,
       email: r.google_email,
       hasTasksScope: r.has_tasks_scope,
+      needsReauth: r.needs_reauth,
     }));
     res.json({ connected: accounts.length > 0, accounts });
   } catch (err) {
@@ -118,7 +120,7 @@ router.get('/status', auth, async (req, res) => {
 router.get('/accounts', auth, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, google_email, has_tasks_scope FROM google_accounts WHERE user_id = $1 ORDER BY created_at',
+      'SELECT id, google_email, has_tasks_scope, needs_reauth FROM google_accounts WHERE user_id = $1 ORDER BY created_at',
       [req.userId]
     );
     res.json(
@@ -126,6 +128,7 @@ router.get('/accounts', auth, async (req, res) => {
         id: r.id,
         email: r.google_email,
         hasTasksScope: r.has_tasks_scope,
+        needsReauth: r.needs_reauth,
       }))
     );
   } catch (err) {
@@ -173,7 +176,7 @@ router.post('/accounts/:id/sync-all', auth, async (req, res) => {
     // Re-fetch: the requested row may have been a legacy placeholder that got
     // merged away during reconciliation.
     const accountResult = await pool.query(
-      'SELECT id, google_email, refresh_token, has_tasks_scope FROM google_accounts WHERE id = $1 AND user_id = $2',
+      'SELECT id, google_email, refresh_token, has_tasks_scope, needs_reauth FROM google_accounts WHERE id = $1 AND user_id = $2',
       [req.params.id, req.userId]
     );
     if (accountResult.rows.length === 0) {
@@ -183,6 +186,12 @@ router.post('/accounts/:id/sync-all', auth, async (req, res) => {
       });
     }
     const account = accountResult.rows[0];
+    if (account.needs_reauth) {
+      return res.status(400).json({
+        error:
+          'This account needs to be reconnected — its Google access expired. Click Reconnect, then try syncing again.',
+      });
+    }
     if (account.has_tasks_scope === false) {
       return res.status(400).json({
         error:
@@ -294,18 +303,41 @@ router.post('/accounts/:id/sync-all', auth, async (req, res) => {
   }
 });
 
+// Detect Google's "this refresh token is dead" error (expired in Testing mode,
+// revoked, or a client-secret rotation). Once we see it, hammering the same
+// token on every action is pointless — flag the account for reconnection.
+function isInvalidGrant(err) {
+  const code = err?.response?.data?.error;
+  return code === 'invalid_grant' || /invalid_grant/i.test(err?.message || '');
+}
+
+// Mark a Google account as needing the user to reconnect. Fan-out queries
+// (getTaskLinks / listGoogleAccounts) skip flagged accounts, so this both
+// stops the repeating warnings and drives the "Reconnect" prompt in the UI.
+async function markAccountNeedsReauth(accountId) {
+  if (!accountId) return;
+  try {
+    await pool.query('UPDATE google_accounts SET needs_reauth = TRUE WHERE id = $1', [accountId]);
+  } catch (e) {
+    console.error('Failed to flag Google account for reauth (non-fatal):', e.message);
+  }
+}
+
 // Build a .catch() handler that captures a per-link Google API failure
 // into an errors array AND logs it server-side. Centralises the old
 // "swallow into console.error and pretend it didn't happen" antipattern
 // so every route can surface structured failures to the client.
 function captureGoogleError(errors, link, contextLabel) {
-  return (err) => {
+  return async (err) => {
     const error = err.message || String(err);
     console.error(`${contextLabel} failed for ${link.google_task_id} (non-fatal):`, error);
+    const needsReauth = isInvalidGrant(err);
+    if (needsReauth) await markAccountNeedsReauth(link.account_id);
     errors.push({
       accountId: link.account_id,
       googleTaskId: link.google_task_id,
       error,
+      needsReauth,
     });
   };
 }
@@ -469,7 +501,7 @@ async function dedupeGoogleTasksByTitle(tasksClient, accountId) {
 // List a user's connected Google accounts with their refresh tokens.
 async function listGoogleAccounts(userId) {
   const result = await pool.query(
-    'SELECT id, google_email, refresh_token FROM google_accounts WHERE user_id = $1 ORDER BY created_at',
+    'SELECT id, google_email, refresh_token FROM google_accounts WHERE user_id = $1 AND needs_reauth = FALSE ORDER BY created_at',
     [userId]
   );
   return result.rows;
@@ -481,7 +513,7 @@ async function getTaskLinks(taskId) {
     `SELECT tgl.google_task_id, ga.id AS account_id, ga.refresh_token
      FROM task_google_links tgl
      JOIN google_accounts ga ON ga.id = tgl.google_account_id
-     WHERE tgl.task_id = $1`,
+     WHERE tgl.task_id = $1 AND ga.needs_reauth = FALSE`,
     [taskId]
   );
   return result.rows;
@@ -545,7 +577,9 @@ router.post('/tasks', auth, async (req, res) => {
       } catch (accErr) {
         const error = accErr.message || String(accErr);
         console.error(`Link to account ${acc.id} failed (non-fatal):`, error);
-        googleSyncErrors.push({ accountId: acc.id, error });
+        const needsReauth = isInvalidGrant(accErr);
+        if (needsReauth) await markAccountNeedsReauth(acc.id);
+        googleSyncErrors.push({ accountId: acc.id, error, needsReauth });
       }
     }
 

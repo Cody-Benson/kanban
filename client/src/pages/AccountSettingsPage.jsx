@@ -133,10 +133,20 @@ export default function AccountSettingsPage() {
                   alignItems="flex-start"
                   secondaryAction={
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      {a.needsReauth && (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="warning"
+                          onClick={handleConnectGoogle}
+                        >
+                          Reconnect
+                        </Button>
+                      )}
                       <Button
                         size="small"
                         variant="outlined"
-                        disabled={syncingId === a.id || a.hasTasksScope === false}
+                        disabled={syncingId === a.id || a.hasTasksScope === false || a.needsReauth}
                         onClick={() => handleSyncAll(a.id)}
                         startIcon={
                           syncingId === a.id ? <CircularProgress size={14} /> : null
@@ -153,7 +163,9 @@ export default function AccountSettingsPage() {
                   <ListItemText
                     primary={a.email}
                     secondary={
-                      a.hasTasksScope === false
+                      a.needsReauth
+                        ? "Reconnection required — this account's Google access expired. Click Reconnect to restore sync."
+                        : a.hasTasksScope === false
                         ? 'Missing Google Tasks permission — reconnect this account and check the Tasks box on the Google consent screen.'
                         : result
                         ? result.msg
@@ -161,7 +173,7 @@ export default function AccountSettingsPage() {
                     }
                     secondaryTypographyProps={{
                       color:
-                        a.hasTasksScope === false || (result && !result.ok)
+                        a.needsReauth || a.hasTasksScope === false || (result && !result.ok)
                           ? 'warning.main'
                           : 'success.main',
                     }}

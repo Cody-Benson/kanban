@@ -195,6 +195,8 @@ async function runMigrations() {
     );
     ALTER TABLE google_accounts
       ADD COLUMN IF NOT EXISTS has_tasks_scope BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE google_accounts
+      ADD COLUMN IF NOT EXISTS needs_reauth BOOLEAN NOT NULL DEFAULT FALSE;
     CREATE TABLE IF NOT EXISTS task_google_links (
       id SERIAL PRIMARY KEY,
       task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
