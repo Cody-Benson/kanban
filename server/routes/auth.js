@@ -241,13 +241,43 @@ router.post('/reset-password', async (req, res) => {
 // email; the JWT payload alone only carries `userId`.
 router.get('/me', auth, async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, email FROM users WHERE id = $1', [req.userId]);
+    const result = await pool.query(
+      'SELECT id, email, default_assignee_email FROM users WHERE id = $1',
+      [req.userId]
+    );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Get me error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PUT /api/auth/default-assignee — set (or clear) the email new tasks are
+// auto-assigned to when the creator doesn't pick an assignee. Validates the
+// email belongs to a registered user; pass empty/null to clear. Stores the
+// canonical (matched) email so casing differences don't break lookups.
+router.put('/default-assignee', auth, async (req, res) => {
+  try {
+    const email = (req.body.email || '').trim();
+    if (!email) {
+      await pool.query('UPDATE users SET default_assignee_email = NULL WHERE id = $1', [req.userId]);
+      return res.json({ default_assignee_email: null });
+    }
+    const match = await pool.query(
+      'SELECT email FROM users WHERE LOWER(email) = LOWER($1)',
+      [email]
+    );
+    if (match.rows.length === 0) {
+      return res.status(400).json({ error: 'No registered user with that email.' });
+    }
+    const canonical = match.rows[0].email;
+    await pool.query('UPDATE users SET default_assignee_email = $1 WHERE id = $2', [canonical, req.userId]);
+    res.json({ default_assignee_email: canonical });
+  } catch (err) {
+    console.error('Set default assignee error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });

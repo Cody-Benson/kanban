@@ -125,6 +125,29 @@ router.post('/by-project/:projectId', async (req, res) => {
       }
     }
 
+    // If no assignee was chosen, fall back to the creator's configured default
+    // assignee (set in Account Settings). Only applies when that user is a
+    // member of this project's team; otherwise the task stays unassigned.
+    let effectiveAssignedTo = assigned_to || null;
+    if (!effectiveAssignedTo) {
+      const pref = await pool.query(
+        'SELECT default_assignee_email FROM users WHERE id = $1',
+        [req.userId]
+      );
+      const defaultEmail = pref.rows[0]?.default_assignee_email;
+      if (defaultEmail) {
+        const candidate = await pool.query(
+          `SELECT tm.user_id FROM team_members tm
+           JOIN clients c ON c.team_id = tm.team_id
+           JOIN projects p ON p.client_id = c.id
+           JOIN users u ON u.id = tm.user_id
+           WHERE p.id = $1 AND LOWER(u.email) = LOWER($2)`,
+          [req.params.projectId, defaultEmail]
+        );
+        if (candidate.rows.length > 0) effectiveAssignedTo = candidate.rows[0].user_id;
+      }
+    }
+
     // If we're going to create a Google Task with a default "today" date,
     // store that same date in our DB so the two stay in sync. Without this,
     // a later edit syncs DB(null) → Google, clearing the Google due date and
@@ -163,7 +186,7 @@ router.post('/by-project/:projectId', async (req, res) => {
 
     const result = await pool.query(
       'INSERT INTO tasks (project_id, title, description, status, position, due_date, assigned_to) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
-      [req.params.projectId, title, description || '', 'todo', posResult.rows[0].next_pos, effectiveDueDate, assigned_to || null]
+      [req.params.projectId, title, description || '', 'todo', posResult.rows[0].next_pos, effectiveDueDate, effectiveAssignedTo]
     );
     const newTask = result.rows[0];
 

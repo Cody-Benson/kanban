@@ -43,6 +43,8 @@ async function runMigrations() {
       google_refresh_token TEXT,
       created_at TIMESTAMP DEFAULT NOW()
     );
+    ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS default_assignee_email VARCHAR(255);
     CREATE TABLE IF NOT EXISTS clients (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

@@ -6,7 +6,7 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useAuth } from '../context/AuthContext';
-import { changePassword } from '../api/auth';
+import { changePassword, getMe, setDefaultAssignee } from '../api/auth';
 import {
   getGoogleAccounts, disconnectGoogleAccount, getGoogleAuthUrl, syncAllTasks,
 } from '../api/google';
@@ -22,6 +22,9 @@ export default function AccountSettingsPage() {
   const [googleAccounts, setGoogleAccounts] = useState([]);
   const [syncingId, setSyncingId] = useState(null);
   const [syncResult, setSyncResult] = useState({});
+  const [defaultAssignee, setDefaultAssigneeValue] = useState('');
+  const [savingAssignee, setSavingAssignee] = useState(false);
+  const [assigneeMsg, setAssigneeMsg] = useState(null);
 
   const loadGoogleAccounts = () => {
     getGoogleAccounts()
@@ -31,7 +34,29 @@ export default function AccountSettingsPage() {
 
   useEffect(() => {
     loadGoogleAccounts();
+    getMe()
+      .then((u) => setDefaultAssigneeValue(u.default_assignee_email || ''))
+      .catch(() => {});
   }, []);
+
+  const handleSaveAssignee = async () => {
+    setSavingAssignee(true);
+    setAssigneeMsg(null);
+    try {
+      const res = await setDefaultAssignee(defaultAssignee.trim());
+      setDefaultAssigneeValue(res.default_assignee_email || '');
+      setAssigneeMsg({
+        ok: true,
+        msg: res.default_assignee_email
+          ? `New tasks will be assigned to ${res.default_assignee_email} by default.`
+          : 'Default assignee cleared — new tasks will be unassigned.',
+      });
+    } catch (err) {
+      setAssigneeMsg({ ok: false, msg: err.response?.data?.error || 'Failed to save default assignee' });
+    } finally {
+      setSavingAssignee(false);
+    }
+  };
 
   const handleConnectGoogle = async () => {
     try {
@@ -194,6 +219,38 @@ export default function AccountSettingsPage() {
         <Button variant="outlined" sx={{ mt: 1 }} onClick={handleConnectGoogle}>
           Connect another Google account
         </Button>
+      </Paper>
+
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Typography variant="subtitle1" gutterBottom>Default Task Assignee</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          New tasks you create without choosing an assignee are auto-assigned to
+          this person (they must be a member of the project's team). Leave blank
+          to keep new tasks unassigned.
+        </Typography>
+        {assigneeMsg && (
+          <Alert
+            severity={assigneeMsg.ok ? 'success' : 'error'}
+            sx={{ mb: 2 }}
+            onClose={() => setAssigneeMsg(null)}
+          >
+            {assigneeMsg.msg}
+          </Alert>
+        )}
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+          <TextField
+            label="Default assignee email"
+            type="email"
+            size="small"
+            fullWidth
+            value={defaultAssignee}
+            onChange={(e) => setDefaultAssigneeValue(e.target.value)}
+            placeholder="teammate@example.com"
+          />
+          <Button variant="contained" onClick={handleSaveAssignee} disabled={savingAssignee}>
+            {savingAssignee ? 'Saving…' : 'Save'}
+          </Button>
+        </Box>
       </Paper>
 
       <Paper sx={{ p: 3 }}>
