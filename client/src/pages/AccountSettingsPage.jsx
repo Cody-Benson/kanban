@@ -55,7 +55,15 @@ export default function AccountSettingsPage() {
     setSyncingId(id);
     setSyncResult((prev) => ({ ...prev, [id]: null }));
     try {
-      const { synced, failed, skipped = 0, deduped = 0 } = await syncAllTasks(id);
+      const { synced, failed, skipped = 0, deduped = 0, needsReauth } = await syncAllTasks(id);
+      if (needsReauth) {
+        setSyncResult((prev) => ({
+          ...prev,
+          [id]: { ok: false, msg: 'This account needs reconnecting — click Reconnect, then try syncing again.' },
+        }));
+        loadGoogleAccounts(); // refresh so the Reconnect button + flag appear
+        return;
+      }
       let msg = `Synced ${synced} task${synced === 1 ? '' : 's'}.`;
       if (deduped > 0) msg += ` Removed ${deduped} duplicate${deduped === 1 ? '' : 's'}.`;
       if (skipped > 0) msg += ` ${skipped} already in this account.`;

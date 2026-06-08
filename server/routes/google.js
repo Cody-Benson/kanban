@@ -234,6 +234,7 @@ router.post('/accounts/:id/sync-all', auth, async (req, res) => {
 
     let synced = 0;
     let failed = 0;
+    let needsReauth = false;
     // `skipped` is retained for response-shape compatibility. With adopt-existing
     // it should stay 0 in practice — every unlinked-but-same-title task now gets
     // a link row instead of being silently passed over.
@@ -293,10 +294,17 @@ router.post('/accounts/:id/sync-all', auth, async (req, res) => {
           `Sync-all: task ${task.id} -> account ${account.id} failed (non-fatal):`,
           taskErr.message
         );
+        // A dead token won't recover mid-loop — flag the account and stop so
+        // we don't rack up dozens of identical failures.
+        if (isInvalidGrant(taskErr)) {
+          await markAccountNeedsReauth(account.id);
+          needsReauth = true;
+          break;
+        }
       }
     }
 
-    res.json({ synced, failed, skipped, deduped });
+    res.json({ synced, failed, skipped, deduped, needsReauth });
   } catch (err) {
     console.error('Sync-all error:', err);
     res.status(500).json({ error: 'Failed to sync tasks' });
@@ -662,5 +670,7 @@ router.getTaskLinks = getTaskLinks;
 router.deleteGoogleTasksForUser = deleteGoogleTasksForUser;
 router.reconcileLegacyAccounts = reconcileLegacyAccounts;
 router.captureGoogleError = captureGoogleError;
+router.isInvalidGrant = isInvalidGrant;
+router.markAccountNeedsReauth = markAccountNeedsReauth;
 
 module.exports = router;

@@ -193,7 +193,9 @@ router.post('/by-project/:projectId', async (req, res) => {
         } catch (googleErr) {
           const error = googleErr.message || String(googleErr);
           console.error(`Auto Google Task creation for account ${acc.id} (non-fatal):`, error);
-          googleSyncErrors.push({ accountId: acc.id, error });
+          const needsReauth = googleRoutes.isInvalidGrant(googleErr);
+          if (needsReauth) await googleRoutes.markAccountNeedsReauth(acc.id);
+          googleSyncErrors.push({ accountId: acc.id, error, needsReauth });
         }
       }
     }
