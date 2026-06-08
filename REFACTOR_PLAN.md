@@ -1,6 +1,7 @@
 # Refactor Plan: Flatten hierarchy to `users → projects → tasks`
 
-**Status:** Approved, not yet started.
+**Status:** Approved, not yet started. _(Updated 2026-06-08 to fold in the
+`needs_reauth` and default-assignee changes shipped that day.)_
 **Goal:** Collapse the over-engineered `orgs → teams → clients → projects → tasks`
 hierarchy into a flat, Google-Docs-style model: you create a **project** and invite
 people directly to it, with **roles & permissions**. Built to be simple for small
@@ -71,6 +72,10 @@ chosen capability set; the permission-check code never changes.
 4. Indexes: `project_members(user_id)`, `project_members(project_id)`,
    `project_invites(email)`, `role_permissions(role_id)`.
 
+> **Already migrated (do NOT re-add):** `google_accounts.needs_reauth` and
+> `users.default_assignee_email` shipped 2026-06-08. Both are user/account-level
+> and orthogonal to the flatten — they carry over unchanged.
+
 ### Step 2 — Backfill (guarded, runs once)
 For each existing project, derive from the old chain:
 - **owner** → `projects.client_id → clients.team_id → teams.created_by`
@@ -92,9 +97,15 @@ For each existing project, derive from the old chain:
   `DELETE /:id/members/:userId` (owner-only), `PUT /:id/members/:userId/role` (owner-only),
   `GET /invites/pending`, `POST /invites/:id/accept|decline`.
 - **tasks.js** → swap four-hop joins in `verifyTaskOwnership`, `assigned_to` validation,
+  the **default-assignee fallback** (NEW 2026-06-08 — resolves `users.default_assignee_email`
+  via the `team_members → clients → projects` chain; convert to a `project_members` +
+  member-email lookup so the default applies when the user is a *project* member),
   and `/mine` for the `project_members` check; gate mutations via `requirePermission`.
-- **google.js** → repoint the 3 access joins (google.js:199, :497, :566) to
-  `project_members`. **Targeting stays per-user — no behavior change** (fan-out = Phase 2).
+- **google.js** → repoint the 3 hierarchy access joins (sync-all backfill, POST /tasks,
+  DELETE /tasks — **line numbers shifted** after the invalid_grant change, ~:199/:497/:566)
+  to `project_members`. The `needs_reauth` fan-out filters added that day
+  (`getTaskLinks` / `listGoogleAccounts` … `AND ga.needs_reauth = FALSE`) are orthogonal —
+  **keep them**. **Targeting stays per-user — no behavior change** (fan-out = Phase 2).
 - **Delete** clients.js, teams.js, orgs.js; remove their 3 mounts in index.js.
 
 ### Step 4 — Client
@@ -134,3 +145,9 @@ pickers. Cheap: the capability model already supports it; no schema rework.
 - No "company"/workspace object — billing later attaches to the project owner (user).
 - Offboarding is per-project (remove from each project separately).
 - Invites currently do NOT email; claimed by matching the invitee's account email.
+- **Default assignee** (`users.default_assignee_email`) carries over; its membership
+  gate moves from team to project — a task auto-assigns to the default only if that
+  user is a member of the *project*.
+- **Google `needs_reauth`** handling (flag dead tokens, skip flagged accounts in sync
+  fan-out, Reconnect prompt in Account Settings) is independent of the hierarchy and
+  must be preserved through the refactor — don't remove it while editing google.js.
