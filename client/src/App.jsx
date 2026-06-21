@@ -7,13 +7,8 @@ import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
-import ClientDetailPage from './pages/ClientDetailPage';
 import ProjectBoardPage from './pages/ProjectBoardPage';
 import ArchivedTasksPage from './pages/ArchivedTasksPage';
-import TeamSettingsPage from './pages/TeamSettingsPage';
-import TeamsPage from './pages/TeamsPage';
-import OrgsPage from './pages/OrgsPage';
-import OrgSettingsPage from './pages/OrgSettingsPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import AccountSettingsPage from './pages/AccountSettingsPage';
@@ -34,23 +29,7 @@ export default function App() {
               path="/"
               element={
                 <ProtectedRoute>
-                  <Layout><OrgsPage /></Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/clients"
-              element={
-                <ProtectedRoute>
                   <Layout><DashboardPage /></Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/clients/:clientId"
-              element={
-                <ProtectedRoute>
-                  <Layout><ClientDetailPage /></Layout>
                 </ProtectedRoute>
               }
             />
@@ -70,36 +49,11 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
-            <Route path="/orgs" element={<Navigate to="/" replace />} />
-            <Route
-              path="/org-settings"
-              element={
-                <ProtectedRoute>
-                  <Layout><OrgSettingsPage /></Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/teams"
-              element={
-                <ProtectedRoute>
-                  <Layout><TeamsPage /></Layout>
-                </ProtectedRoute>
-              }
-            />
             <Route
               path="/account-settings"
               element={
                 <ProtectedRoute>
                   <Layout><AccountSettingsPage /></Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/team-settings"
-              element={
-                <ProtectedRoute>
-                  <Layout><TeamSettingsPage /></Layout>
                 </ProtectedRoute>
               }
             />

@@ -7,193 +7,158 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
-import { getClients, createClient, updateClient, deleteClient } from '../api/clients';
-import { getPendingInvites, acceptInvite, declineInvite } from '../api/teams';
+import { getProjects, createProject, updateProject, deleteProject } from '../api/projects';
 import { useAuth } from '../context/AuthContext';
+import MyTasksSection from '../components/MyTasksSection';
 
 export default function DashboardPage() {
-  const { currentTeam, loading: authLoading, refreshTeams } = useAuth();
-  const [clients, setClients] = useState([]);
+  const { user } = useAuth();
+  const [projects, setProjects] = useState([]);
   const [newName, setNewName] = useState('');
+  const [newClient, setNewClient] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [editDialog, setEditDialog] = useState({ open: false, id: null, name: '' });
+  const [editDialog, setEditDialog] = useState({ open: false, id: null, name: '', client: '' });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, id: null, name: '' });
-  const [pendingInvites, setPendingInvites] = useState([]);
   const navigate = useNavigate();
 
   const load = async () => {
-    if (!currentTeam) {
-      setLoading(false);
-      return;
-    }
     try {
-      const data = await getClients(currentTeam.id);
-      setClients(data);
+      const data = await getProjects();
+      setProjects(data);
     } catch {
-      setError('Failed to load clients');
+      setError('Failed to load projects');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    if (!authLoading) load();
-  }, [currentTeam, authLoading]);
-
-  useEffect(() => {
-    getPendingInvites().then(setPendingInvites).catch(() => {});
-  }, []);
-
-  const handleAcceptInvite = async (inviteId) => {
-    try {
-      await acceptInvite(inviteId);
-      setPendingInvites((prev) => prev.filter((i) => i.id !== inviteId));
-      await refreshTeams();
-    } catch {
-      setError('Failed to accept invite');
-    }
-  };
-
-  const handleDeclineInvite = async (inviteId) => {
-    try {
-      await declineInvite(inviteId);
-      setPendingInvites((prev) => prev.filter((i) => i.id !== inviteId));
-    } catch {
-      setError('Failed to decline invite');
-    }
-  };
+  useEffect(() => { load(); }, []);
 
   const handleCreate = async (e) => {
     e.preventDefault();
-    if (!newName.trim() || !currentTeam) return;
+    if (!newName.trim()) return;
     try {
-      await createClient(newName.trim(), currentTeam.id);
+      await createProject(newName.trim(), newClient.trim() || null);
       setNewName('');
+      setNewClient('');
       load();
     } catch {
-      setError('Failed to create client');
+      setError('Failed to create project');
     }
   };
 
   const handleUpdate = async () => {
     if (!editDialog.name.trim()) return;
     try {
-      await updateClient(editDialog.id, editDialog.name.trim());
-      setEditDialog({ open: false, id: null, name: '' });
+      await updateProject(editDialog.id, {
+        name: editDialog.name.trim(),
+        client: editDialog.client.trim() || null,
+      });
+      setEditDialog({ open: false, id: null, name: '', client: '' });
       load();
     } catch {
-      setError('Failed to update client');
+      setError('Failed to update project');
     }
   };
 
   const handleDelete = async () => {
     try {
-      await deleteClient(deleteDialog.id);
+      await deleteProject(deleteDialog.id);
       setDeleteDialog({ open: false, id: null, name: '' });
       load();
-    } catch {
-      setError('Failed to delete client');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to delete project');
     }
   };
 
-  if (authLoading || loading) return <CircularProgress sx={{ display: 'block', mx: 'auto', mt: 4 }} />;
+  if (loading) return <CircularProgress sx={{ display: 'block', mx: 'auto', mt: 4 }} />;
 
   return (
     <>
-      {pendingInvites.length > 0 && (
-        <Paper sx={{ p: 2, mb: 3, backgroundColor: '#e3f2fd' }}>
-          <Typography variant="subtitle2" gutterBottom>Pending Team Invites</Typography>
-          {pendingInvites.map((invite) => (
-            <Box key={invite.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-              <Typography variant="body2" sx={{ flex: 1 }}>
-                You've been invited to join <strong>{invite.team_name}</strong>
-              </Typography>
-              <Button size="small" variant="contained" onClick={() => handleAcceptInvite(invite.id)}>
-                Accept
-              </Button>
-              <Button size="small" onClick={() => handleDeclineInvite(invite.id)}>
-                Decline
-              </Button>
-            </Box>
-          ))}
-        </Paper>
-      )}
+      <MyTasksSection />
 
-      <Typography variant="h4" gutterBottom>Clients</Typography>
+      <Typography variant="h4" gutterBottom>Projects</Typography>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
-      {!currentTeam ? (
-        <Typography color="text.secondary">No team found. Create one in Team Settings.</Typography>
-      ) : (
-        <>
-          <Paper sx={{ p: 2, mb: 3 }}>
-            <form onSubmit={handleCreate}>
-              <Box sx={{ display: 'flex', gap: 2 }}>
-                <TextField
-                  label="New client name"
-                  size="small"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  sx={{ flex: 1 }}
-                />
-                <Button type="submit" variant="contained">Add Client</Button>
-              </Box>
-            </form>
-          </Paper>
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <form onSubmit={handleCreate}>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <TextField
+              label="New project name"
+              size="small"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              sx={{ flex: 2, minWidth: 200 }}
+            />
+            <TextField
+              label="Client (optional)"
+              size="small"
+              value={newClient}
+              onChange={(e) => setNewClient(e.target.value)}
+              sx={{ flex: 1, minWidth: 160 }}
+            />
+            <Button type="submit" variant="contained">Add Project</Button>
+          </Box>
+        </form>
+      </Paper>
 
-          {clients.length === 0 ? (
-            <Typography color="text.secondary">No clients yet. Create one above.</Typography>
-          ) : (
-            <List>
-              {clients.map((client) => (
-                <Paper key={client.id} sx={{ mb: 1 }}>
-                  <ListItem
-                    button
-                    onClick={() => navigate(`/clients/${client.id}`)}
-                  >
-                    <ListItemText primary={client.name} />
-                    <ListItemSecondaryAction>
-                      <IconButton onClick={() => setEditDialog({ open: true, id: client.id, name: client.name })}>
-                        <EditIcon />
-                      </IconButton>
-                      <IconButton onClick={() => setDeleteDialog({ open: true, id: client.id, name: client.name })}>
-                        <DeleteIcon />
-                      </IconButton>
-                    </ListItemSecondaryAction>
-                  </ListItem>
-                </Paper>
-              ))}
-            </List>
-          )}
-        </>
+      {projects.length === 0 ? (
+        <Typography color="text.secondary">No projects yet. Create one above.</Typography>
+      ) : (
+        <List>
+          {projects.map((project) => (
+            <Paper key={project.id} sx={{ mb: 1 }}>
+              <ListItem button onClick={() => navigate(`/projects/${project.id}`)}>
+                <ListItemText primary={project.name} secondary={project.client || null} />
+                <ListItemSecondaryAction>
+                  <IconButton onClick={() => setEditDialog({ open: true, id: project.id, name: project.name, client: project.client || '' })}>
+                    <EditIcon />
+                  </IconButton>
+                  {project.created_by === user?.id && (
+                    <IconButton onClick={() => setDeleteDialog({ open: true, id: project.id, name: project.name })}>
+                      <DeleteIcon />
+                    </IconButton>
+                  )}
+                </ListItemSecondaryAction>
+              </ListItem>
+            </Paper>
+          ))}
+        </List>
       )}
 
       {/* Edit Dialog */}
-      <Dialog open={editDialog.open} onClose={() => setEditDialog({ open: false, id: null, name: '' })}>
-        <DialogTitle>Edit Client</DialogTitle>
+      <Dialog open={editDialog.open} onClose={() => setEditDialog({ open: false, id: null, name: '', client: '' })}>
+        <DialogTitle>Edit Project</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
             fullWidth
             margin="dense"
-            label="Client name"
+            label="Project name"
             value={editDialog.name}
             onChange={(e) => setEditDialog({ ...editDialog, name: e.target.value })}
           />
+          <TextField
+            fullWidth
+            margin="dense"
+            label="Client (optional)"
+            value={editDialog.client}
+            onChange={(e) => setEditDialog({ ...editDialog, client: e.target.value })}
+          />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setEditDialog({ open: false, id: null, name: '' })}>Cancel</Button>
+          <Button onClick={() => setEditDialog({ open: false, id: null, name: '', client: '' })}>Cancel</Button>
           <Button onClick={handleUpdate} variant="contained">Save</Button>
         </DialogActions>
       </Dialog>
 
       {/* Delete Confirmation */}
       <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({ open: false, id: null, name: '' })}>
-        <DialogTitle>Delete Client</DialogTitle>
+        <DialogTitle>Delete Project</DialogTitle>
         <DialogContent>
           <Typography>
-            Are you sure you want to delete "{deleteDialog.name}"? This will also delete all projects and tasks under this client.
+            Are you sure you want to delete "{deleteDialog.name}"? This will also delete all tasks in it.
           </Typography>
         </DialogContent>
         <DialogActions>

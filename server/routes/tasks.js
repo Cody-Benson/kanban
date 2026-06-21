@@ -5,26 +5,21 @@ const auth = require('../middleware/auth');
 const router = express.Router();
 router.use(auth);
 
-// Verify a project belongs to a team the user is a member of
+// Verify the user is a member of the project
 async function verifyProjectOwnership(projectId, userId) {
   const result = await pool.query(
-    `SELECT p.id FROM projects p
-     JOIN clients c ON p.client_id = c.id
-     JOIN team_members tm ON c.team_id = tm.team_id
-     WHERE p.id = $1 AND tm.user_id = $2`,
+    'SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2',
     [projectId, userId]
   );
   return result.rows.length > 0;
 }
 
-// Verify a task belongs to a team the user is a member of
+// Verify the task is in a project the user is a member of
 async function verifyTaskOwnership(taskId, userId) {
   const result = await pool.query(
     `SELECT t.id FROM tasks t
-     JOIN projects p ON t.project_id = p.id
-     JOIN clients c ON p.client_id = c.id
-     JOIN team_members tm ON c.team_id = tm.team_id
-     WHERE t.id = $1 AND tm.user_id = $2`,
+     JOIN project_members pm ON pm.project_id = t.project_id
+     WHERE t.id = $1 AND pm.user_id = $2`,
     [taskId, userId]
   );
   return result.rows.length > 0;
@@ -114,14 +109,11 @@ router.post('/by-project/:projectId', async (req, res) => {
     // Validate assigned_to is a team member if provided
     if (assigned_to) {
       const memberCheck = await pool.query(
-        `SELECT tm.id FROM team_members tm
-         JOIN clients c ON c.team_id = tm.team_id
-         JOIN projects p ON p.client_id = c.id
-         WHERE p.id = $1 AND tm.user_id = $2`,
+        'SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2',
         [req.params.projectId, assigned_to]
       );
       if (memberCheck.rows.length === 0) {
-        return res.status(400).json({ error: 'Assigned user is not a team member' });
+        return res.status(400).json({ error: 'Assigned user is not a project member' });
       }
     }
 
@@ -137,11 +129,9 @@ router.post('/by-project/:projectId', async (req, res) => {
       const defaultEmail = pref.rows[0]?.default_assignee_email;
       if (defaultEmail) {
         const candidate = await pool.query(
-          `SELECT tm.user_id FROM team_members tm
-           JOIN clients c ON c.team_id = tm.team_id
-           JOIN projects p ON p.client_id = c.id
-           JOIN users u ON u.id = tm.user_id
-           WHERE p.id = $1 AND LOWER(u.email) = LOWER($2)`,
+          `SELECT pm.user_id FROM project_members pm
+           JOIN users u ON u.id = pm.user_id
+           WHERE pm.project_id = $1 AND LOWER(u.email) = LOWER($2)`,
           [req.params.projectId, defaultEmail]
         );
         if (candidate.rows.length > 0) effectiveAssignedTo = candidate.rows[0].user_id;
@@ -244,10 +234,8 @@ router.get('/mine', async (req, res) => {
 
     if (scope === 'mine') {
       where.push(`t.assigned_to = $1`);
-    } else {
-      // 'all' — any task in a team the user is a member of
-      where.push(`tm.user_id = $1`);
     }
+    // 'all' — membership is enforced by the project_members JOIN below
 
     if (!includeCompleted) {
       where.push(`t.status != 'completed'`);
@@ -262,18 +250,10 @@ router.get('/mine', async (req, res) => {
         u.email AS assigned_email,
         p.id AS project_id,
         p.name AS project_name,
-        c.id AS client_id,
-        c.name AS client_name,
-        tm_team.id AS team_id,
-        tm_team.name AS team_name,
-        o.id AS org_id,
-        o.name AS org_name
+        p.client AS client_name
       FROM tasks t
       JOIN projects p ON t.project_id = p.id
-      JOIN clients c ON p.client_id = c.id
-      JOIN teams tm_team ON c.team_id = tm_team.id
-      JOIN organizations o ON tm_team.org_id = o.id
-      JOIN team_members tm ON tm.team_id = tm_team.id AND tm.user_id = $1
+      JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = $1
       LEFT JOIN users u ON t.assigned_to = u.id
       WHERE ${where.join(' AND ')}
       ORDER BY p.id, t.status, t.position

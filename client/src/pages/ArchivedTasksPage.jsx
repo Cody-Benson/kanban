@@ -80,19 +80,9 @@ export default function ArchivedTasksPage() {
   return (
     <>
       <Breadcrumbs sx={{ mb: 1 }}>
-        <Link underline="hover" color="inherit" sx={{ cursor: 'pointer' }} onClick={() => navigate('/clients')}>
-          Clients
+        <Link underline="hover" color="inherit" sx={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
+          Projects
         </Link>
-        {project && (
-          <Link
-            underline="hover"
-            color="inherit"
-            sx={{ cursor: 'pointer' }}
-            onClick={() => navigate(`/clients/${project.client_id}`)}
-          >
-            {project.client_name}
-          </Link>
-        )}
         <Link
           underline="hover"
           color="inherit"

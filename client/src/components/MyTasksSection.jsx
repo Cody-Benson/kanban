@@ -9,7 +9,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import MiniKanban from './MiniKanban';
 import TaskDialog from './TaskDialog';
 import { getMyTasks, updateTask } from '../api/tasks';
-import { getTeamMembers } from '../api/teams';
+import { getProjectMembers } from '../api/projects';
 import { useToast } from '../context/ToastContext';
 import { googleSyncWarning } from '../utils/googleSync';
 
@@ -85,10 +85,6 @@ export default function MyTasksSection() {
         map.set(t.project_id, {
           project_id: t.project_id,
           project_name: t.project_name,
-          client_name: t.client_name,
-          team_id: t.team_id,
-          team_name: t.team_name,
-          org_name: t.org_name,
           tasks: [],
         });
       }
@@ -104,12 +100,8 @@ export default function MyTasksSection() {
       }
       return { ...b, tasksByStatus };
     });
-    // Sort boards by org > team > client > project
-    arr.sort((a, b) => {
-      const ka = `${a.org_name}/${a.team_name}/${a.client_name}/${a.project_name}`;
-      const kb = `${b.org_name}/${b.team_name}/${b.client_name}/${b.project_name}`;
-      return ka.localeCompare(kb);
-    });
+    // Sort boards alphabetically by project name
+    arr.sort((a, b) => (a.project_name || '').localeCompare(b.project_name || ''));
     return arr;
   }, [tasks]);
 
@@ -137,7 +129,7 @@ export default function MyTasksSection() {
   const handleTaskClick = async (task) => {
     let teamMembers = [];
     try {
-      teamMembers = await getTeamMembers(task.team_id);
+      teamMembers = await getProjectMembers(task.project_id);
     } catch {
       // non-fatal
     }

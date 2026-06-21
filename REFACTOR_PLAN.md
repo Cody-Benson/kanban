@@ -1,7 +1,29 @@
 # Refactor Plan: Flatten hierarchy to `users → projects → tasks`
 
-**Status:** Approved, not yet started. _(Updated 2026-06-08 to fold in the
-`needs_reauth` and default-assignee changes shipped that day.)_
+**Status:** Deploy A shipped 2026-06-21 (lean variant — flatten only; roles &
+Share panel deferred). Old tables kept; Deploy B (drops) + roles/invites still
+pending. _(Updated 2026-06-08 to fold in the `needs_reauth` and default-assignee
+changes.)_
+
+### Shipped in Deploy A (lean flatten)
+- Schema: `projects.created_by`, `projects.client` (text label), `client_id` made
+  nullable, new `project_members` table; idempotent backfill from the old hierarchy.
+- Access model: **membership = full access**, project **creator = owner** (only the
+  owner can delete). Roles (Owner/Editor/Viewer), `requirePermission`, invites, and
+  the Share panel are **deferred** to the next step.
+- Server: `projects.js` rewritten top-level (+ `GET /:id/members`); `tasks.js`,
+  `google.js` joins repointed to `project_members`; `auth.js` no longer creates/returns
+  orgs/teams; `clients.js`/`teams.js`/`orgs.js` routes deleted.
+- Client: flat project list home (`DashboardPage`) with My Tasks; org/team/client pages
+  + API modules deleted; `AuthContext` stripped to auth-only; breadcrumbs/assignee
+  pickers use projects/project members.
+
+### Still TODO
+- **Add-collaborator UI** (project invites + Share panel) — currently only *existing*
+  (migrated) members; no way to add a new person to a project yet.
+- **Roles & permissions** (Owner/Editor/Viewer + `requirePermission` + custom builder).
+- **Deploy B** — drop `clients`/`teams`/`team_*`/`org*` tables + `projects.client_id`,
+  and remove the backfill block from `runMigrations()`.
 **Goal:** Collapse the over-engineered `orgs → teams → clients → projects → tasks`
 hierarchy into a flat, Google-Docs-style model: you create a **project** and invite
 people directly to it, with **roles & permissions**. Built to be simple for small

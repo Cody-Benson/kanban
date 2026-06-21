@@ -22,15 +22,13 @@ import KanbanColumn from './KanbanColumn';
 import TaskDialog from './TaskDialog';
 import { getTasks, createTask, updateTask, deleteTask, reorderTask } from '../api/tasks';
 import { getGoogleStatus } from '../api/google';
-import { getTeamMembers } from '../api/teams';
-import { useAuth } from '../context/AuthContext';
+import { getProjectMembers } from '../api/projects';
 import { useToast } from '../context/ToastContext';
 import { googleSyncWarning } from '../utils/googleSync';
 
 const STATUSES = ['todo', 'in-progress', 'blocked', 'completed'];
 
 export default function KanbanBoard({ projectId, projectName }) {
-  const { currentTeam } = useAuth();
   const { show: showToast } = useToast();
   const navigate = useNavigate();
   const [tasks, setTasks] = useState([]);
@@ -59,12 +57,10 @@ export default function KanbanBoard({ projectId, projectName }) {
     getGoogleStatus()
       .then((data) => setGoogleAccounts(data.accounts || []))
       .catch(() => {});
-    if (currentTeam?.id) {
-      getTeamMembers(currentTeam.id)
-        .then(setTeamMembers)
-        .catch(() => {});
-    }
-  }, [currentTeam?.id]);
+    getProjectMembers(projectId)
+      .then(setTeamMembers)
+      .catch(() => {});
+  }, [projectId]);
 
   const defaultAssignedTo = useMemo(() => {
     const assigned = tasks.filter((t) => t.assigned_to);

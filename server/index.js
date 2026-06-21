@@ -4,12 +4,9 @@ const cors = require('cors');
 const path = require('path');
 
 const authRoutes = require('./routes/auth');
-const clientRoutes = require('./routes/clients');
 const projectRoutes = require('./routes/projects');
 const taskRoutes = require('./routes/tasks');
 const googleRoutes = require('./routes/google');
-const teamRoutes = require('./routes/teams');
-const orgRoutes = require('./routes/orgs');
 
 const app = express();
 
@@ -18,12 +15,9 @@ app.use(cors({ origin: corsOrigin }));
 app.use(express.json());
 
 app.use('/api/auth', authRoutes);
-app.use('/api/clients', clientRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/google', googleRoutes);
-app.use('/api/teams', teamRoutes);
-app.use('/api/orgs', orgRoutes);
 
 // Serve static frontend in production
 const clientDist = path.join(__dirname, '..', 'client', 'dist');
@@ -209,6 +203,53 @@ async function runMigrations() {
     );
     CREATE INDEX IF NOT EXISTS idx_google_accounts_user_id ON google_accounts(user_id);
     CREATE INDEX IF NOT EXISTS idx_task_google_links_task_id ON task_google_links(task_id);
+  `);
+
+  // --- Flatten refactor (Deploy A): projects own themselves (created_by) and
+  // carry an optional "client" text label; project_members replaces the old
+  // team→client access chain. Old tables are kept until Deploy B. ---
+  await pool.query(`
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id);
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS client VARCHAR(255);
+    ALTER TABLE projects ALTER COLUMN client_id DROP NOT NULL;
+    CREATE TABLE IF NOT EXISTS project_members (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(project_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_members_user_id ON project_members(user_id);
+    CREATE INDEX IF NOT EXISTS idx_project_members_project_id ON project_members(project_id);
+  `);
+
+  // One-time backfill from the old hierarchy. Idempotent (guarded UPDATEs +
+  // ON CONFLICT DO NOTHING), so it's safe to re-run on every boot until Deploy B.
+  await pool.query(`
+    -- Owner = the old team's creator; fall back to the earliest team member.
+    UPDATE projects p SET created_by = COALESCE(
+      (SELECT t.created_by FROM clients c JOIN teams t ON c.team_id = t.id WHERE c.id = p.client_id),
+      (SELECT tm.user_id FROM clients c JOIN team_members tm ON c.team_id = tm.team_id
+        WHERE c.id = p.client_id ORDER BY tm.created_at, tm.id LIMIT 1)
+    )
+    WHERE p.created_by IS NULL AND p.client_id IS NOT NULL;
+
+    -- Carry the old client name across as the project's text label.
+    UPDATE projects p SET client = (SELECT c.name FROM clients c WHERE c.id = p.client_id)
+    WHERE p.client IS NULL AND p.client_id IS NOT NULL;
+
+    -- Members = everyone on the project's old team (so nobody loses access).
+    INSERT INTO project_members (project_id, user_id)
+    SELECT DISTINCT p.id, tm.user_id
+    FROM projects p
+    JOIN clients c ON p.client_id = c.id
+    JOIN team_members tm ON c.team_id = tm.team_id
+    ON CONFLICT (project_id, user_id) DO NOTHING;
+
+    -- Ensure the owner is always a member.
+    INSERT INTO project_members (project_id, user_id)
+    SELECT p.id, p.created_by FROM projects p WHERE p.created_by IS NOT NULL
+    ON CONFLICT (project_id, user_id) DO NOTHING;
   `);
 
   // Migrate legacy single-token data into the new multi-account tables.

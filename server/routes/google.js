@@ -205,10 +205,8 @@ router.post('/accounts/:id/sync-all', auth, async (req, res) => {
     const tasksResult = await pool.query(
       `SELECT t.id, t.title, t.description, t.status, t.due_date
        FROM tasks t
-       JOIN projects p ON t.project_id = p.id
-       JOIN clients c ON p.client_id = c.id
-       JOIN team_members tm ON c.team_id = tm.team_id
-       WHERE tm.user_id = $1
+       JOIN project_members pm ON pm.project_id = t.project_id
+       WHERE pm.user_id = $1
          AND NOT EXISTS (
            SELECT 1 FROM task_google_links tgl
            WHERE tgl.task_id = t.id AND tgl.google_account_id = $2
@@ -536,10 +534,8 @@ router.post('/tasks', auth, async (req, res) => {
     // Verify task ownership via team membership
     const taskResult = await pool.query(
       `SELECT t.* FROM tasks t
-       JOIN projects p ON t.project_id = p.id
-       JOIN clients c ON p.client_id = c.id
-       JOIN team_members tm ON c.team_id = tm.team_id
-       WHERE t.id = $1 AND tm.user_id = $2`,
+       JOIN project_members pm ON pm.project_id = t.project_id
+       WHERE t.id = $1 AND pm.user_id = $2`,
       [taskId, req.userId]
     );
     if (taskResult.rows.length === 0) {
@@ -605,10 +601,8 @@ router.delete('/tasks/:taskId', auth, async (req, res) => {
 
     const taskResult = await pool.query(
       `SELECT t.id FROM tasks t
-       JOIN projects p ON t.project_id = p.id
-       JOIN clients c ON p.client_id = c.id
-       JOIN team_members tm ON c.team_id = tm.team_id
-       WHERE t.id = $1 AND tm.user_id = $2`,
+       JOIN project_members pm ON pm.project_id = t.project_id
+       WHERE t.id = $1 AND pm.user_id = $2`,
       [taskId, req.userId]
     );
     if (taskResult.rows.length === 0) {
