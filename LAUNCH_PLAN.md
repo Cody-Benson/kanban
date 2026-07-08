@@ -57,19 +57,19 @@ Sensitive-scope verification checklist:
 - [ ] Verify via Chrome DevTools → Application → Manifest + Lighthouse (no red errors).
 - [ ] Mobile layout pass on the Kanban board (MUI is desktop-first).
 
-## Phase 3 — AI agent access (BYO-AI via MCP) — **part of v1**
+## Phase 3 — AI agent access (BYO-AI via MCP) — **part of v1** ✅ BUILT 2026-07-07
 Decision: users connect their *own* agent (Claude/OpenAI/Gemini) to a hosted MCP server.
 We do not run or pay for any LLM. Build order matters: tokens → MCP → audit.
 
 End-goal UX: user tells their Claude *"add a task for today to send that email to Jonah"* →
 Claude calls the `create_task` MCP tool → task appears in the app + syncs to Google Tasks.
 
-- [ ] **Per-user API tokens** (foundation):
+- [x] **Per-user API tokens** (foundation):
   - `api_tokens` table (hashed at rest, named, `last_used_at`, revocable); plaintext shown once.
   - Auth middleware accepts `Bearer <api_token>` in addition to JWT; resolves to the user and
     inherits that user's `project_members` access.
   - Account Settings UI: generate / name / copy-once / list / revoke.
-- [ ] **Remote MCP server**:
+- [x] **Remote MCP server**:
   - Hosted, authenticated MCP endpoint (Streamable-HTTP transport) mounted in the Express app
     (e.g. `/mcp`), built with the MCP TypeScript SDK. Works with Claude/OpenAI/Gemini.
   - v1 auth: user pastes their API token into their MCP client config. (Full MCP OAuth = later.)
@@ -77,12 +77,13 @@ Claude calls the `create_task` MCP tool → task appears in the app + syncs to G
     `list_projects`, `list_tasks`, `create_task`, `update_task`, `move_task`, `complete_task`,
     `delete_task`, `list_project_members`, `search_tasks`. Expose `due_date` + `assignee` on
     create/update so "for today" and assignment work.
-- [ ] **Default / "Inbox" project** for frictionless quick-capture, so "add a task…" with no
+- [x] **Default / "Inbox" project** for frictionless quick-capture, so "add a task…" with no
       project named lands somewhere sensible instead of forcing Claude to ask every time.
-- [ ] **Activity / audit log**: record mutations with an **actor** (human vs. which agent token),
+- [x] **Activity / audit log**: record mutations with an **actor** (human vs. which agent token),
       surfaced per project/task — so "what did the agent just change?" is answerable.
-- [ ] **Security (launch-blocking)**: per-token rate limiting, revocation, hashed tokens,
-      destructive ops (delete project) still owner-gated.
+- [x] **Security (launch-blocking)**: per-token rate limiting (120 req/min/token), revocation,
+      hashed tokens (SHA-256), destructive ops (delete project) still owner-gated; Inbox undeletable;
+      token management is human-session-only.
 
 Note: it creates the *task*, not the email — Claude only sends the email if the user also has an
 email tool connected. Connecting Claude is a one-time setup per user (their client → our MCP server).

@@ -110,12 +110,17 @@ export default function DashboardPage() {
           {projects.map((project) => (
             <Paper key={project.id} sx={{ mb: 1 }}>
               <ListItem button onClick={() => navigate(`/projects/${project.id}`)}>
-                <ListItemText primary={project.name} secondary={project.client || null} />
+                <ListItemText
+                  primary={project.name}
+                  secondary={project.is_inbox ? 'Quick-capture inbox' : project.client || null}
+                />
                 <ListItemSecondaryAction>
-                  <IconButton onClick={() => setEditDialog({ open: true, id: project.id, name: project.name, client: project.client || '' })}>
-                    <EditIcon />
-                  </IconButton>
-                  {project.created_by === user?.id && (
+                  {!project.is_inbox && (
+                    <IconButton onClick={() => setEditDialog({ open: true, id: project.id, name: project.name, client: project.client || '' })}>
+                      <EditIcon />
+                    </IconButton>
+                  )}
+                  {project.created_by === user?.id && !project.is_inbox && (
                     <IconButton onClick={() => setDeleteDialog({ open: true, id: project.id, name: project.name })}>
                       <DeleteIcon />
                     </IconButton>

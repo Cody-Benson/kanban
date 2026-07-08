@@ -46,3 +46,6 @@ export const getArchivedTasks = (projectId) =>
 
 export const restoreTask = (id) =>
   api.post(`/tasks/${id}/restore`).then((r) => r.data);
+
+export const getTaskActivity = (id) =>
+  api.get(`/tasks/${id}/activity`).then((r) => r.data);

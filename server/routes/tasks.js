@@ -1,9 +1,12 @@
 const express = require('express');
 const pool = require('../db');
 const auth = require('../middleware/auth');
+const { logActivity } = require('../lib/activity');
+const { agentRateLimiter } = require('../middleware/rateLimit');
 
 const router = express.Router();
 router.use(auth);
+router.use(agentRateLimiter);
 
 // Verify the user is a member of the project
 async function verifyProjectOwnership(projectId, userId) {
@@ -89,6 +92,12 @@ router.post('/:id/restore', async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(400).json({ error: 'Task is not archived' });
     }
+    logActivity(req, {
+      projectId: result.rows[0].project_id,
+      taskId: result.rows[0].id,
+      action: 'task.restore',
+      details: { title: result.rows[0].title },
+    });
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Restore task error:', err);
@@ -179,6 +188,13 @@ router.post('/by-project/:projectId', async (req, res) => {
       [req.params.projectId, title, description || '', 'todo', posResult.rows[0].next_pos, effectiveDueDate, effectiveAssignedTo]
     );
     const newTask = result.rows[0];
+
+    logActivity(req, {
+      projectId: newTask.project_id,
+      taskId: newTask.id,
+      action: 'task.create',
+      details: { title: newTask.title },
+    });
 
     const googleSyncErrors = [];
     if (wantsGoogleTask && googleTargets.length > 0) {
@@ -336,6 +352,15 @@ router.put('/reorder', async (req, res) => {
 
     await client.query('COMMIT');
 
+    if (oldStatus !== newStatus) {
+      logActivity(req, {
+        projectId,
+        taskId: task.id,
+        action: 'task.status_change',
+        details: { title: task.title, from: oldStatus, to: newStatus },
+      });
+    }
+
     // Google Tasks sync: update every linked Google Task's status on column change
     const googleSyncErrors = [];
     if (oldStatus !== newStatus) {
@@ -382,6 +407,30 @@ router.put('/reorder', async (req, res) => {
   }
 });
 
+// GET /api/tasks/:id/activity — who did what to this task, newest first
+router.get('/:id/activity', async (req, res) => {
+  try {
+    if (!(await verifyTaskOwnership(req.params.id, req.userId))) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    const result = await pool.query(
+      `SELECT a.id, a.actor_type, a.action, a.details, a.created_at,
+              u.email AS user_email, tok.name AS token_name
+       FROM activity_log a
+       LEFT JOIN users u ON u.id = a.user_id
+       LEFT JOIN api_tokens tok ON tok.id = a.token_id
+       WHERE a.task_id = $1
+       ORDER BY a.created_at DESC, a.id DESC
+       LIMIT 50`,
+      [req.params.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get task activity error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // GET /api/tasks/:id
 router.get('/:id', async (req, res) => {
   try {
@@ -405,12 +454,17 @@ router.put('/:id', async (req, res) => {
     const { title, description, due_date, assigned_to } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
 
-    // Capture the previous due_date so we can decide whether the user actually
-    // changed it. Without this, a title-only edit would patch Google with
-    // due=null and drop the task off the user's calendar.
-    const prev = await pool.query('SELECT due_date FROM tasks WHERE id = $1', [req.params.id]);
-    const prevDueDate = prev.rows[0]?.due_date
-      ? new Date(prev.rows[0].due_date).toISOString().slice(0, 10)
+    // Capture the previous row so we can decide whether the user actually
+    // changed the due date (a title-only edit must not patch Google with
+    // due=null and drop the task off the user's calendar) and record which
+    // fields changed in the activity log.
+    const prev = await pool.query(
+      'SELECT title, description, due_date, assigned_to FROM tasks WHERE id = $1',
+      [req.params.id]
+    );
+    const prevTask = prev.rows[0];
+    const prevDueDate = prevTask?.due_date
+      ? new Date(prevTask.due_date).toISOString().slice(0, 10)
       : null;
     const newDueDate = due_date || null;
 
@@ -419,6 +473,22 @@ router.put('/:id', async (req, res) => {
       [title, description || '', newDueDate, assigned_to || null, req.params.id]
     );
     const updatedTask = result.rows[0];
+
+    const changed = [];
+    if (prevTask) {
+      if (prevTask.title !== updatedTask.title) changed.push('title');
+      if ((prevTask.description || '') !== (updatedTask.description || '')) changed.push('description');
+      if (prevDueDate !== newDueDate) changed.push('due_date');
+      if (prevTask.assigned_to !== updatedTask.assigned_to) changed.push('assigned_to');
+    }
+    if (changed.length > 0) {
+      logActivity(req, {
+        projectId: updatedTask.project_id,
+        taskId: updatedTask.id,
+        action: 'task.update',
+        details: { title: updatedTask.title, changed },
+      });
+    }
 
     // Google Tasks sync: patch linked Google Task with new title/notes/due.
     // Only touch the `due` field when the date actually changed — sending
@@ -482,7 +552,19 @@ router.delete('/:id', async (req, res) => {
       console.error('Google Tasks link lookup error (non-fatal):', linkErr.message);
     }
 
+    // Capture title/project before the row vanishes so the log stays readable.
+    const doomed = await pool.query('SELECT title, project_id FROM tasks WHERE id = $1', [req.params.id]);
+
     await pool.query('DELETE FROM tasks WHERE id = $1', [req.params.id]);
+
+    if (doomed.rows[0]) {
+      logActivity(req, {
+        projectId: doomed.rows[0].project_id,
+        taskId: null,
+        action: 'task.delete',
+        details: { title: doomed.rows[0].title },
+      });
+    }
 
     // Google Tasks sync: delete the linked Google Task in every account (non-fatal)
     const googleSyncErrors = [];

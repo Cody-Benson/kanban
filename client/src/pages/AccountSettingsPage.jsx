@@ -10,6 +10,7 @@ import { changePassword, getMe, setDefaultAssignee } from '../api/auth';
 import {
   getGoogleAccounts, disconnectGoogleAccount, getGoogleAuthUrl, syncAllTasks,
 } from '../api/google';
+import ApiTokensSection from '../components/ApiTokensSection';
 
 export default function AccountSettingsPage() {
   const { user } = useAuth();
@@ -220,6 +221,8 @@ export default function AccountSettingsPage() {
           Connect another Google account
         </Button>
       </Paper>
+
+      <ApiTokensSection />
 
       <Paper sx={{ p: 3, mb: 3 }}>
         <Typography variant="subtitle1" gutterBottom>Default Task Assignee</Typography>

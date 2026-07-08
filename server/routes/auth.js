@@ -9,6 +9,7 @@ const auth = require('../middleware/auth');
 const router = express.Router();
 
 router.post('/register', async (req, res) => {
+  const client = await pool.connect();
   try {
     const { email, password } = req.body;
     if (!email || !password) {
@@ -21,18 +22,34 @@ router.post('/register', async (req, res) => {
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const result = await pool.query(
+
+    // Every user gets an Inbox project — the default landing spot for
+    // quick-captured tasks (e.g. created by an AI agent with no project named).
+    await client.query('BEGIN');
+    const result = await client.query(
       'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email',
       [email, passwordHash]
     );
-
     const user = result.rows[0];
+    const inbox = await client.query(
+      "INSERT INTO projects (name, created_by, is_inbox) VALUES ('Inbox', $1, TRUE) RETURNING id",
+      [user.id]
+    );
+    await client.query(
+      'INSERT INTO project_members (project_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [inbox.rows[0].id, user.id]
+    );
+    await client.query('COMMIT');
+
     const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
 
     res.status(201).json({ token, user: { id: user.id, email: user.email } });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Register error:', err);
     res.status(500).json({ error: 'Server error' });
+  } finally {
+    client.release();
   }
 });
 

@@ -6,8 +6,26 @@ import {
 } from '@mui/material';
 import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import { getGoogleAuthUrl, createGoogleTask } from '../api/google';
+import { getTaskActivity } from '../api/tasks';
 import { useToast } from '../context/ToastContext';
 import { googleSyncWarning } from '../utils/googleSync';
+
+// Human-readable line for one activity_log row.
+function activityLabel(entry) {
+  const d = entry.details || {};
+  switch (entry.action) {
+    case 'task.create': return 'created this task';
+    case 'task.update': return `updated ${(d.changed || []).join(', ') || 'this task'}`;
+    case 'task.status_change': return `moved ${d.from} → ${d.to}`;
+    case 'task.restore': return 'restored this task';
+    default: return entry.action;
+  }
+}
+
+function activityActor(entry) {
+  if (entry.actor_type === 'agent') return `🤖 ${entry.token_name || 'agent'}`;
+  return entry.user_email || 'Unknown user';
+}
 
 // Stable default so an absent prop doesn't change identity each render
 // (which would retrigger the account-selection effect infinitely).
@@ -25,6 +43,15 @@ export default function TaskDialog({
   const [addingToGoogle, setAddingToGoogle] = useState(false);
   // Map of account id -> boolean (which accounts a new task fans out to)
   const [selectedAccounts, setSelectedAccounts] = useState({});
+  const [activity, setActivity] = useState([]);
+
+  useEffect(() => {
+    if (open && task?.id) {
+      getTaskActivity(task.id).then(setActivity).catch(() => setActivity([]));
+    } else {
+      setActivity([]);
+    }
+  }, [open, task?.id]);
 
   const hasGoogle = googleAccounts.length > 0;
   const accountKey = googleAccounts.map((a) => a.id).join(',');
@@ -214,6 +241,19 @@ export default function TaskDialog({
                 size="small"
               />
             )}
+          </Box>
+        )}
+
+        {isExistingTask && activity.length > 0 && (
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+              Activity
+            </Typography>
+            {activity.map((entry) => (
+              <Typography key={entry.id} variant="body2" color="text.secondary" sx={{ mb: 0.25 }}>
+                {activityActor(entry)} {activityLabel(entry)} · {new Date(entry.created_at).toLocaleString()}
+              </Typography>
+            ))}
           </Box>
         )}
       </DialogContent>

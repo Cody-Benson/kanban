@@ -7,6 +7,8 @@ const authRoutes = require('./routes/auth');
 const projectRoutes = require('./routes/projects');
 const taskRoutes = require('./routes/tasks');
 const googleRoutes = require('./routes/google');
+const tokenRoutes = require('./routes/tokens');
+const mcpRoutes = require('./mcp');
 
 const app = express();
 
@@ -18,6 +20,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/google', googleRoutes);
+app.use('/api/tokens', tokenRoutes);
+// MCP endpoint for BYO-AI agents. Must stay above the SPA catch-all.
+app.use('/mcp', mcpRoutes);
 
 // Serve static frontend in production
 const clientDist = path.join(__dirname, '..', 'client', 'dist');
@@ -391,6 +396,62 @@ async function runMigrations() {
     );
     CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens(token);
     CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
+  `);
+
+  // --- Phase 3 (BYO-AI): per-user API tokens, per-user Inbox project, and
+  // the activity log that records who (human vs. agent token) changed what. ---
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name VARCHAR(100) NOT NULL,
+      token_hash VARCHAR(64) UNIQUE NOT NULL,
+      token_prefix VARCHAR(12) NOT NULL,
+      last_used_at TIMESTAMP,
+      revoked_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_api_tokens_user_id ON api_tokens(user_id);
+
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS is_inbox BOOLEAN NOT NULL DEFAULT FALSE;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_one_inbox_per_user
+      ON projects(created_by) WHERE is_inbox;
+
+    CREATE TABLE IF NOT EXISTS activity_log (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+      task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      actor_type VARCHAR(10) NOT NULL CHECK (actor_type IN ('human', 'agent')),
+      token_id INTEGER REFERENCES api_tokens(id) ON DELETE SET NULL,
+      action VARCHAR(50) NOT NULL,
+      details JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_activity_log_task_id ON activity_log(task_id);
+    CREATE INDEX IF NOT EXISTS idx_activity_log_project ON activity_log(project_id, created_at DESC);
+  `);
+
+  // Backfill: every existing user gets an Inbox project (quick-capture target
+  // for agent-created tasks with no project specified).
+  await pool.query(`
+    DO $$
+    DECLARE
+      r RECORD;
+      new_project_id INTEGER;
+    BEGIN
+      FOR r IN SELECT u.id FROM users u
+        WHERE NOT EXISTS (
+          SELECT 1 FROM projects p WHERE p.created_by = u.id AND p.is_inbox
+        )
+      LOOP
+        INSERT INTO projects (name, created_by, is_inbox) VALUES ('Inbox', r.id, TRUE)
+        RETURNING id INTO new_project_id;
+
+        INSERT INTO project_members (project_id, user_id) VALUES (new_project_id, r.id)
+        ON CONFLICT DO NOTHING;
+      END LOOP;
+    END $$;
   `);
 
   // Collapse legacy-<id>@unknown placeholder accounts onto the real Google
